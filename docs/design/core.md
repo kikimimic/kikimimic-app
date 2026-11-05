@@ -199,6 +199,7 @@ pub trait AsrEngine: Send {
     fn step(&mut self, lane: LaneId, langs: &Spoken) -> Result<Option<AsrStep>>;   // 言語の変更はここで効く。読み直さない
     fn finish(&mut self, lane: LaneId, langs: &Spoken) -> Result<Vec<AsrStep>>;
     fn transcribe_clip(&mut self, audio: &Pcm16k, langs: &Spoken) -> Result<Vec<Recognized>> { /* scratch lane を使う既定実装 */ }
+    fn set_keywords(&mut self, keywords: &[Keyword]) { /* 既定は何もしない。Haas は glossary を keywords として聞き取りに使う */ }
 }
 pub struct AsrStep { pub committed_delta: String, pub volatile: String, pub utterance: Option<Recognized> }
 pub struct Recognized { pub text: String, pub start: StreamMs, pub end: StreamMs, pub lang: Option<Lang> }
@@ -433,7 +434,7 @@ UI の操作 ───Command(mpsc)────────────▶│ wa
 
 ## 決定済みの論点（2026-11-05）
 
-- glossary は全モードに適用する。`replacements`（誤認識 → 正しい表記）は確定した文字起こしに、`terms` は翻訳へのヒントに使う。v2 の localStorage にある辞書は引き継がない（GPUI からは読めず、登録し直す方が安い）
+- glossary は全モードに適用する。`replacements`（誤認識 → 正しい表記）は確定した文字起こしに、`terms` は翻訳へのヒントに使う。語を聞き取れる認識器（Haas）には、正しい表記ごとに誤認識をまとめた `keywords` も渡す。v2 の localStorage にある辞書は引き継がない（GPUI からは読めず、登録し直す方が安い）
 - bundle identifier は `io.github.kikimimic.app` に変える（TCC の許可は取り直しになる）
 - README は英語を主にし、日本語版を `README.ja.md` に置く
 

@@ -1,0 +1,19 @@
+[package]
+name = "kikimimic-asr-speech"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+# speech.cpp (libspeech, C API 4) is dlopened, never linked: it carries its own
+# ggml, which cannot share an image with the one statically inside whisper-rs
+# (docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md). Whisper is a
+# dependency only for its Silero VAD.
+[dependencies]
+anyhow = "1"
+toml = "1"
+libloading = "0.9"
+kikimimic-core = { path = "../kikimimic-core" }
+kikimimic-asr-whisper = { path = "../kikimimic-asr-whisper" }
+
+[dev-dependencies]
+hound = "3.5"

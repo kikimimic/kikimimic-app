@@ -2684,6 +2684,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "kikimimic-asr-apple",
+ "kikimimic-asr-speech",
  "kikimimic-asr-whisper",
  "kikimimic-capture",
  "kikimimic-core",
@@ -2701,6 +2702,18 @@ dependencies = [
  "anyhow",
  "hound",
  "kikimimic-core",
+ "toml 1.2.0+spec-1.1.0",
+]
+
+[[package]]
+name = "kikimimic-asr-speech"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "kikimimic-asr-whisper",
+ "kikimimic-core",
+ "libloading 0.9.0",
  "toml 1.2.0+spec-1.1.0",
 ]
 

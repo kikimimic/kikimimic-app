@@ -599,10 +599,11 @@ impl MainWindow {
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(ui.speech_model()),
+                .child(ui.recognition_model()),
         );
+        let catalog = self.kkm.models().catalog();
         let mut row = div().flex().gap_2().flex_wrap();
-        for (i, m) in self.kkm.models().catalog().models().iter().enumerate() {
+        for (i, m) in catalog.models().iter().enumerate() {
             if m.kind != ModelKind::Asr || !crate::engines::runs_here(m) {
                 continue;
             }
@@ -618,6 +619,24 @@ impl MainWindow {
             );
         }
         col = col.child(row);
+        if let Some(asr) = catalog.get(&settings.asr_model) {
+            let unheard: Vec<&str> = asr
+                .unheard(&policy.spoken)
+                .map(|l| {
+                    kikimimic_core::language::NAMES
+                        .iter()
+                        .find(|(code, ..)| *code == l.as_str())
+                        .map_or(l.as_str(), |(_, _, name)| *name)
+                })
+                .collect();
+            if !unheard.is_empty() {
+                col = col.child(div().text_color(rgb(0x9a6700)).child(format!(
+                    "{}{}",
+                    ui.unheard_languages(),
+                    unheard.join(", ")
+                )));
+            }
+        }
 
         col = col.child(
             div()

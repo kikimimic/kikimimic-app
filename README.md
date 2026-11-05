@@ -19,7 +19,7 @@ The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the sha
 - Word-level live transcription with local Whisper (whisper.cpp, Metal)
 - Sentence-level live translation with a local LLM (llama.cpp, GGUF)
 - Separate lanes for your microphone and system audio, recorded on one timeline
-- A glossary that fixes misrecognitions and keeps names intact in translations
+- A glossary that fixes misrecognitions and keeps names intact in translations; with Haas it also helps recognize those words
 - Face-to-face mode: microphone only, nothing recorded
 
 ## Models
@@ -30,6 +30,7 @@ shows its license first.
 | Model | Use | License |
 |---|---|---|
 | Whisper large-v3-turbo (q8_0) + Silero VAD | Recognition (default) | MIT |
+| Haas ja v1.0 (Q8_0, Q4_K) + Silero VAD | Recognition (optional, Japanese only; runs in speech.cpp, which `scripts/bundle-mac.sh` bundles as `libspeech`) | Apache-2.0 |
 | macOS Speech Recognition (SpeechAnalyzer) | Recognition (macOS 26+, nothing to download; listens in the first spoken language) | Part of macOS |
 | Qwen3 4B Instruct 2507 (Q4_K_M) | Translation (default) | Apache-2.0 |
 | PLaMo 3 Translate 2B (Q4_K_M) | Translation (optional) | PLaMo Community License — free for personal and non-commercial use; commercial use needs registration with PFN |

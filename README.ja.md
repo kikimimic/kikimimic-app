@@ -13,7 +13,7 @@
 - ローカルの Whisper による単語単位のリアルタイム文字起こし（whisper.cpp、Metal）
 - ローカルの LLM による確定文単位のリアルタイム翻訳（llama.cpp、GGUF）
 - マイクとシステム音声を別々のレーンで、同じ時間軸に録音
-- 辞書（glossary）: 誤認識を正しい表記に直し、翻訳でも固有名詞を保つ
+- 辞書（glossary）: 誤認識を正しい表記に直し、翻訳でも固有名詞を保つ。Haas では認識時にもその語を聞き取りやすくする
 - 対面モード: マイクだけを使い、録音はしない
 
 ## モデル
@@ -23,6 +23,7 @@
 | モデル | 用途 | ライセンス |
 |---|---|---|
 | Whisper large-v3-turbo（q8_0）＋ Silero VAD | 文字起こし（既定） | MIT |
+| Haas ja v1.0（Q8_0、Q4_K）＋ Silero VAD | 文字起こし（任意、日本語のみ。speech.cpp で動き、`scripts/bundle-mac.sh` が `libspeech` として同梱） | Apache-2.0 |
 | macOS 標準の音声認識（SpeechAnalyzer） | 文字起こし（macOS 26 以降。ダウンロード不要。話される言語の1つ目だけを聞く） | macOS の一部 |
 | Qwen3 4B Instruct 2507（Q4_K_M） | 翻訳（既定） | Apache-2.0 |
 | PLaMo 3 Translate 2B（Q4_K_M） | 翻訳（任意） | PLaMo Community License。個人・非商用は無料、商用は PFN への登録が必要 |

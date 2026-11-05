@@ -23,6 +23,10 @@ pub trait AsrEngine: Send {
     /// Commit everything pending and forget the lane.
     fn finish(&mut self, lane: LaneId, langs: &Spoken) -> anyhow::Result<Vec<AsrStep>>;
 
+    /// Words to listen for, from the user's glossary. Replaces the previous
+    /// list; engines that cannot listen for words ignore it.
+    fn set_keywords(&mut self, _keywords: &[crate::glossary::Keyword]) {}
+
     /// Recognize one short clip on its own (re-recognizing a diarized turn).
     /// The default runs it through a scratch lane.
     fn transcribe_clip(
