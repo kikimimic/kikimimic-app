@@ -26,20 +26,21 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 ### Step 0: リポジトリの体裁
 
-- [ ] `LICENSE`（MIT）を置き、README を OSS 向けに英語で書き直す。日本語版は `README.ja.md`
-- [ ] crate の名前を `kkm-*` から `kikimimic-*` に変える（構造の変更だけのコミット）
-- [ ] CI: fmt、clippy、test。対象は core とテスト用ユーティリティで、macOS・Linux・Windows のマトリクスで回す
-- [ ] bundle identifier を `io.github.kikimimic.app` に変える（`bundle-mac.sh` の `Info.plist` で設定する。TCC の許可は取り直しになる）
-- [ ] CONTRIBUTING（エンジンや OS バックエンドの足し方、契約テストの使い方）
+- [x] `LICENSE`（MIT）を置き、README を OSS 向けに英語で書き直す。日本語版は `README.ja.md`
+- [x] crate の名前を `kkm-*` から `kikimimic-*` に変える（構造の変更だけのコミット）
+- [x] CI: fmt、clippy、test。対象は core とテスト用ユーティリティで、macOS・Linux・Windows のマトリクスで回す
+- [x] bundle identifier を `io.github.kikimimic.app` に変える（`bundle-mac.sh` の `Info.plist` で設定する。TCC の許可は取り直しになる）
+- [x] CONTRIBUTING（エンジンや OS バックエンドの足し方、契約テストの使い方）
 
 ### Step 0.5: GPUI の土台（リスクの高いものを先に確かめる）
 
-- [ ] `app/` に GPUI のアプリを作る。Zed のタグ（`v1.27.0` から始める）を固定した git 依存にし、CI で fetch をキャッシュする
-- [ ] `scripts/bundle-mac.sh`: `Info.plist`（`NSMicrophoneUsageDescription`、`NSAudioCaptureUsageDescription`）、`Contents/Frameworks` への cdylib の配置、ad-hoc 署名。`build-app.sh` を置き換える
+- [x] `app/` に GPUI のアプリを作る。Zed のタグ（`v1.27.0` から始める）を固定した git 依存にし、CI で fetch をキャッシュする
+      ※ GPUI は Rust 1.98 が必要なので `rust-toolchain.toml` で 1.98.1 に固定し、flake は rustup を提供する形にした。Tauri と GPUI はロックファイルを共有できないので、Step 6 までは `app/` を独立したワークスペースにしている
+- [x] `scripts/bundle-mac.sh`: `Info.plist`（`NSMicrophoneUsageDescription`、`NSAudioCaptureUsageDescription`）、`Contents/Frameworks` への cdylib の配置、ad-hoc 署名。`build-app.sh` を置き換える
 - [ ] 組み立てた `.app` で、v2 の `capture` を使ってスピーカーレーンに音が入ることを確かめる（TCC）
 - [ ] `widgets/text_input`（gpui の `examples/input.rs` が出発点）で、日本語 IME の変換・確定・取り消しが自然に動くことを確かめる
 - [ ] 確定部分は通常の色、未確定部分はグレーで、同じ行に続けて描くこと。偽のイベントを連続で流して追従を確かめる
-- [ ] CI: `cargo tree` に GPL の crate が出てきたら落とす
+- [x] CI: GPL だけで提供されている crate が依存に入ったら落とす（`scripts/check-licenses.py`）
 
 ### Step 1: core の骨組みと、最初の Red
 
