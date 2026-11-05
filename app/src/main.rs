@@ -1,5 +1,8 @@
+mod calendar;
+mod cutin;
 mod downloads;
 mod engines;
+mod google;
 mod i18n;
 mod paths;
 mod state;
