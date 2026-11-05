@@ -50,6 +50,8 @@ mkdir -p "$speech_dir"
 unzip -q -o "$speech_zip" -d "$speech_dir"
 speech_lib="$(find "$speech_dir" -name "$speech_dylib" -type f | head -1)"
 [[ -n "$speech_lib" ]] || { echo "$speech_dylib is not in $speech_zip" >&2; exit 1; }
+# Also beside the release build, where a `cargo run` checkout looks for it.
+mkdir -p target/release && cp "$speech_lib" "target/release/$speech_dylib"
 
 echo "==> app"
 cargo build --release -p kikimimic
