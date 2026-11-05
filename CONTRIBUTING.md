@@ -43,9 +43,8 @@ issue first: the boundary may be wrong.
 ## Checks
 
 ```sh
-cargo fmt --all --check
-cargo clippy -p kikimimic-core --all-targets
-cargo test -p kikimimic-core
+just ci      # fmt-check, lint, test and licenses, as CI does on macOS
+just core    # only the headless core
 ```
 
 CI runs the core on macOS, Linux and Windows, and the engines on macOS.

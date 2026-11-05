@@ -32,14 +32,14 @@
 
 ## ビルド（macOS）
 
-Rust のバージョンは `rust-toolchain.toml` で固定しています（rustup が読みます）。それ以外は `nix develop` でそろいます。Nix を使わない場合は、Xcode のコマンドラインツール（SpeechAnalyzer のため macOS 26 以降の SDK）と CMake が必要です。
+Rust のバージョンは `rust-toolchain.toml` で固定しています（rustup が読みます）。それ以外は `nix develop` でそろいます（`just` も含む）。Nix を使わない場合は、Xcode のコマンドラインツール（SpeechAnalyzer のため macOS 26 以降の SDK）、CMake、just が必要です。
 
 翻訳バックエンドは別の cdylib としてビルドします。llama.cpp の ggml と whisper.cpp の ggml を同じバイナリに入れられないためです（[ADR-153805](docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md)）。
 
 ```sh
-cargo build --release -p kikimimic-mt-llama-dylib
-cargo run -p kikimimic                # 開発
-./scripts/bundle-mac.sh --open        # Kikimimic.app
+just dev     # 開発（翻訳バックエンドをビルドしてから cargo run）
+just run     # Kikimimic.app
+just         # recipe の一覧
 ```
 
 システム音声のレーンは、署名済みの `.app` から起動したときだけ動きます。それ以外の方法で起動すると、macOS は黙って無音を返します。

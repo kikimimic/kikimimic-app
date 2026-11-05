@@ -40,17 +40,18 @@ The list lives in [models/catalog.toml](models/catalog.toml).
 ## Building (macOS)
 
 Rust is pinned by `rust-toolchain.toml` (rustup picks it up). `nix develop`
-provides everything else; without Nix you need the Xcode command line tools
-(with the macOS 26 SDK or later, for SpeechAnalyzer) and CMake.
+provides everything else, `just` included; without Nix you need the Xcode
+command line tools (with the macOS 26 SDK or later, for SpeechAnalyzer), CMake
+and just.
 
 The translation backend is a separate cdylib, because llama.cpp's ggml cannot
 share one binary with whisper.cpp's
 ([ADR-153805](docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md)):
 
 ```sh
-cargo build --release -p kikimimic-mt-llama-dylib
-cargo run -p kikimimic                # development
-./scripts/bundle-mac.sh --open        # Kikimimic.app
+just dev     # development: builds the backend, then cargo run
+just run     # Kikimimic.app
+just         # every recipe
 ```
 
 The system-audio lane only works from the signed `.app`; launched any other way,
