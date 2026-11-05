@@ -61,11 +61,13 @@ fn main() {
         .join("lib/swift/macosx");
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=kkm_speech");
-    println!("cargo:rustc-link-search=native={}", toolchain_lib.display());
+    // The SDK first: the toolchain directory also holds back-deployment
+    // dylibs with @rpath install names, which the app could not load. It is
+    // only searched for the static compatibility libraries.
     println!("cargo:rustc-link-search=native={sdk}/usr/lib/swift");
+    println!("cargo:rustc-link-search=native={}", toolchain_lib.display());
     println!("cargo:rustc-link-search=framework={sdk}/System/Library/Frameworks");
     for framework in ["Speech", "AVFoundation", "CoreMedia", "Foundation"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
-    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }
