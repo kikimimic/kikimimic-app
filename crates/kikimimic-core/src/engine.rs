@@ -63,3 +63,68 @@ pub struct MtRequest<'a> {
     /// Correct spellings to keep (proper nouns, product names).
     pub terms: &'a [String],
 }
+
+/// What a factory gets to load a model: its catalog entry and the paths of
+/// its files and its requirements' files.
+pub struct LoadRequest<'a> {
+    pub entry: &'a crate::catalog::ModelEntry,
+    pub files: &'a crate::store::ResolvedFiles,
+}
+
+pub type AsrFactory = fn(&LoadRequest<'_>) -> anyhow::Result<Box<dyn AsrEngine>>;
+pub type MtFactory = fn(&LoadRequest<'_>) -> anyhow::Result<Box<dyn MtEngine>>;
+/// Checks a catalog entry's `options` for an engine.
+pub type OptionsCheck = fn(&toml::Table) -> Result<(), String>;
+
+/// Engine crates by the name the catalog uses. The app fills it; the core
+/// never names an engine.
+#[derive(Default, Clone)]
+pub struct EngineRegistry {
+    asr: std::collections::HashMap<String, (OptionsCheck, AsrFactory)>,
+    mt: std::collections::HashMap<String, (OptionsCheck, MtFactory)>,
+}
+
+impl EngineRegistry {
+    pub fn asr(&mut self, engine: &str, check: OptionsCheck, load: AsrFactory) -> &mut Self {
+        self.asr.insert(engine.into(), (check, load));
+        self
+    }
+
+    pub fn mt(&mut self, engine: &str, check: OptionsCheck, load: MtFactory) -> &mut Self {
+        self.mt.insert(engine.into(), (check, load));
+        self
+    }
+
+    /// Every recognition and translation model in `catalog` names a
+    /// registered engine that accepts its options. Run it as a test in the
+    /// app, so a catalog entry without an engine fails the build.
+    pub fn check(&self, catalog: &crate::catalog::Catalog) -> Result<(), String> {
+        use crate::catalog::ModelKind;
+        for m in catalog.models() {
+            let check = match m.kind {
+                ModelKind::Asr => self.asr.get(&m.engine).map(|(c, _)| c),
+                ModelKind::Mt => self.mt.get(&m.engine).map(|(c, _)| c),
+                ModelKind::Vad => continue,
+            };
+            let check = check.ok_or_else(|| format!("{}: no engine named {}", m.id, m.engine))?;
+            check(&m.options).map_err(|e| format!("{}: {e}", m.id))?;
+        }
+        Ok(())
+    }
+
+    pub fn load_asr(&self, req: &LoadRequest<'_>) -> anyhow::Result<Box<dyn AsrEngine>> {
+        let (_, load) = self
+            .asr
+            .get(&req.entry.engine)
+            .ok_or_else(|| anyhow::anyhow!("no speech engine named {}", req.entry.engine))?;
+        load(req)
+    }
+
+    pub fn load_mt(&self, req: &LoadRequest<'_>) -> anyhow::Result<Box<dyn MtEngine>> {
+        let (_, load) = self
+            .mt
+            .get(&req.entry.engine)
+            .ok_or_else(|| anyhow::anyhow!("no translation engine named {}", req.entry.engine))?;
+        load(req)
+    }
+}

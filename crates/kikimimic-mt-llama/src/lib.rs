@@ -205,6 +205,34 @@ impl kikimimic_core::engine::MtEngine for LlamaMt {
     }
 }
 
+/// The prompt format a catalog entry asks for (`options.prompt`).
+fn prompt_format(options: &toml::Table) -> Result<PromptFormat, String> {
+    match options.get("prompt") {
+        None => Ok(PromptFormat::ChatMl),
+        Some(toml::Value::String(name)) => {
+            PromptFormat::parse(name).ok_or_else(|| format!("unknown prompt format {name:?}"))
+        }
+        Some(other) => Err(format!("prompt must be a string, not {other}")),
+    }
+}
+
+/// For `EngineRegistry::mt("llama", check_options, factory)`.
+pub fn check_options(options: &toml::Table) -> Result<(), String> {
+    prompt_format(options).map(|_| ())
+}
+
+/// Loads a catalog GGUF behind the isolated backend.
+pub fn factory(
+    req: &kikimimic_core::engine::LoadRequest<'_>,
+) -> Result<Box<dyn kikimimic_core::engine::MtEngine>> {
+    let format = prompt_format(&req.entry.options).map_err(anyhow::Error::msg)?;
+    let path = req
+        .files
+        .path(kikimimic_core::catalog::ModelKind::Mt)
+        .with_context(|| format!("{} has no model file", req.entry.id))?;
+    Ok(Box::new(LlamaMt::load(path, format)?))
+}
+
 impl Drop for GgmlTranslator {
     fn drop(&mut self) {
         unsafe { (self.api.shutdown)(self.handle) };
@@ -239,6 +267,17 @@ impl Translator for GgmlTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_catalog_names_the_prompt_format() {
+        let opts = |t: &str| t.parse::<toml::Table>().unwrap();
+        assert_eq!(
+            prompt_format(&opts(r#"prompt = "plamo3""#)),
+            Ok(PromptFormat::Plamo3)
+        );
+        assert_eq!(prompt_format(&opts("")), Ok(PromptFormat::ChatMl));
+        assert!(check_options(&opts(r#"prompt = "gemma""#)).is_err());
+    }
 
     #[test]
     fn a_bundled_app_finds_the_backend_in_its_frameworks() {

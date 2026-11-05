@@ -2089,6 +2089,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "kikimimic-core",
+ "toml 0.8.2",
  "whisper-rs",
 ]
 
@@ -2119,6 +2120,8 @@ dependencies = [
  "rubato",
  "serde",
  "serde_json",
+ "sha2",
+ "toml 0.8.2",
 ]
 
 [[package]]
@@ -2128,6 +2131,7 @@ dependencies = [
  "anyhow",
  "kikimimic-core",
  "libloading 0.8.9",
+ "toml 0.8.2",
 ]
 
 [[package]]

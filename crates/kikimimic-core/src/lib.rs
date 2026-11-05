@@ -5,6 +5,7 @@
 
 pub mod asr;
 pub mod capture;
+pub mod catalog;
 mod conductor;
 pub mod domain;
 pub mod engine;
@@ -17,12 +18,12 @@ pub mod models;
 pub mod resample;
 mod runtime;
 pub mod scheduler;
+pub mod settings;
 pub mod sim;
+pub mod store;
 
 pub use conductor::RecordingTarget;
-pub use runtime::{
-    AsrLoader, CaptureBackend, CaptureHandle, Config, Events, Kikimimic, MtLoader, SessionMode,
-};
+pub use runtime::{CaptureBackend, CaptureHandle, Config, Events, Kikimimic, SessionMode};
 pub mod translate;
 
 /// Which audio lane an event belongs to.

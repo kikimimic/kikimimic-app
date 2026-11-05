@@ -46,6 +46,7 @@ pub(crate) enum Command {
     Start(StartSession),
     Stop,
     SetPolicy(LanguagePolicy),
+    SetGlossary(Glossary),
 }
 
 pub(crate) enum Input {
@@ -137,6 +138,7 @@ impl Conductor {
             Input::Command(Command::Start(start)) => self.start(now, start, &mut out),
             Input::Command(Command::Stop) => self.stop(now, &mut out),
             Input::Command(Command::SetPolicy(p)) => self.policy = p,
+            Input::Command(Command::SetGlossary(g)) => self.glossary = g,
             Input::Tick => self.tick(now, &mut out),
             Input::Asr(AsrOut::Stepped(lane, result)) => self.stepped(lane, result, &mut out),
             Input::Asr(AsrOut::Finished(lane, result)) => {

@@ -290,6 +290,28 @@ impl kikimimic_core::Recognizer for WhisperRecognizer {
     }
 }
 
+/// For `EngineRegistry::asr("whisper", check_options, factory)`.
+pub fn check_options(_options: &toml::Table) -> Result<(), String> {
+    Ok(())
+}
+
+/// Loads the catalog's Whisper model with the Silero VAD it requires.
+pub fn factory(
+    req: &kikimimic_core::engine::LoadRequest<'_>,
+) -> Result<Box<dyn kikimimic_core::engine::AsrEngine>> {
+    use kikimimic_core::catalog::ModelKind;
+    let path = |kind| {
+        req.files
+            .path(kind)
+            .and_then(|p| p.to_str())
+            .with_context(|| format!("{} is missing its {kind:?} file", req.entry.id))
+    };
+    Ok(Box::new(load(
+        path(ModelKind::Asr)?,
+        path(ModelKind::Vad)?,
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
