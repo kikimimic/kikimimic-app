@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-dirs = "6"
+dirs = "7"
 futures = "0.3"
 kikimimic-asr-whisper = { path = "../crates/kikimimic-asr-whisper" }
 kikimimic-capture = { path = "../crates/kikimimic-capture" }
