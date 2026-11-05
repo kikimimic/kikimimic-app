@@ -70,12 +70,12 @@ pub unsafe extern "C" fn kkm_translate_init(
     catch_unwind(AssertUnwindSafe(|| match init(&path, n_gpu_layers) {
         Ok(t) => Box::into_raw(Box::new(t)),
         Err(e) => {
-            eprintln!("kkm-translate init: {e:#}");
+            eprintln!("kikimimic-mt-llama init: {e:#}");
             std::ptr::null_mut()
         }
     }))
     .unwrap_or_else(|_| {
-        eprintln!("kkm-translate init: panicked");
+        eprintln!("kikimimic-mt-llama init: panicked");
         std::ptr::null_mut()
     })
 }
@@ -100,7 +100,7 @@ fn init(path: &str, n_gpu_layers: u32) -> Result<Translator> {
     };
     let template = model.chat_template(None).ok();
     if template.is_none() {
-        eprintln!("kkm-translate init: model has no chat template, using ChatML");
+        eprintln!("kikimimic-mt-llama init: model has no chat template, using ChatML");
     }
     Ok(Translator {
         backend,
@@ -133,13 +133,13 @@ pub unsafe extern "C" fn kkm_translate(
         match translate(translator, &sentence, &source, &target) {
             Ok(out) => CString::new(out).map_or(std::ptr::null_mut(), CString::into_raw),
             Err(e) => {
-                eprintln!("kkm-translate: {e:#}");
+                eprintln!("kikimimic-mt-llama: {e:#}");
                 std::ptr::null_mut()
             }
         }
     }))
     .unwrap_or_else(|_| {
-        eprintln!("kkm-translate: panicked");
+        eprintln!("kikimimic-mt-llama: panicked");
         std::ptr::null_mut()
     })
 }
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn kkm_translate_shutdown(handle: *mut Translator) {
 /// a last resort.
 fn build_prompt(t: &Translator, sentence: &str, source: &str, target: &str) -> Result<String> {
     // An empty source means detection was unconfident about this window
-    // (kkm_core::language). Naming a language we are not sure of is worse
+    // (kikimimic_core::language). Naming a language we are not sure of is worse
     // than naming none: told the wrong one, the model "corrects" the
     // sentence into it instead of translating what was actually said.
     let from = if source.is_empty() {
@@ -190,7 +190,7 @@ fn build_prompt(t: &Translator, sentence: &str, source: &str, target: &str) -> R
         match t.model.apply_chat_template(template, &messages, true) {
             Ok(prompt) => return Ok(prompt),
             Err(e) => {
-                eprintln!("kkm-translate: chat template failed ({e}), falling back to ChatML")
+                eprintln!("kikimimic-mt-llama: chat template failed ({e}), falling back to ChatML")
             }
         }
     }
@@ -234,7 +234,7 @@ fn translate(t: &mut Translator, sentence: &str, source: &str, target: &str) -> 
         }
         if generated >= MAX_OUTPUT_TOKENS {
             eprintln!(
-                "kkm-translate: hit the {MAX_OUTPUT_TOKENS}-token output cap, \
+                "kikimimic-mt-llama: hit the {MAX_OUTPUT_TOKENS}-token output cap, \
                  translation may be truncated: {sentence}"
             );
             break;

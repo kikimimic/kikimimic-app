@@ -45,7 +45,7 @@
     "icon": ["icons/icon.png"],
     "macOS": {
       "minimumSystemVersion": "14.2",
-      "frameworks": ["../target/release/libkkm_translate_ggml.dylib"]
+      "frameworks": ["../target/release/libkikimimic_mt_llama_dylib.dylib"]
     }
   }
 }

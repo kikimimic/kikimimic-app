@@ -7,7 +7,7 @@
 //! symbol collision is resolved (docs/step0-results.md).
 
 use anyhow::{Context, Result};
-use kkm_core::{AsrEngine, Hypothesis, SpeechDetector};
+use kikimimic_core::{AsrEngine, Hypothesis, SpeechDetector};
 
 /// Segments whisper itself considers likely non-speech (coughs, breaths,
 /// keyboard noise) hallucinate text; drop them above this probability.
@@ -214,31 +214,31 @@ impl WhisperModels {
 }
 
 /// The Whisper strategy: a rolling window, re-decoded on a cadence, with
-/// LocalAgreement deciding what has settled ([`kkm_core::scheduler`]).
+/// LocalAgreement deciding what has settled ([`kikimimic_core::scheduler`]).
 ///
 /// The window state is per lane; the models behind it are not. `Rc` rather
 /// than `Arc` because both live and die on the pipeline thread — the sharing
 /// here is between two lanes, never between two threads.
 pub struct WhisperRecognizer {
     models: std::rc::Rc<std::cell::RefCell<WhisperModels>>,
-    scheduler: kkm_core::scheduler::StreamScheduler,
+    scheduler: kikimimic_core::scheduler::StreamScheduler,
 }
 
 impl WhisperRecognizer {
     pub fn new(models: std::rc::Rc<std::cell::RefCell<WhisperModels>>) -> Self {
         Self {
             models,
-            scheduler: kkm_core::scheduler::StreamScheduler::new(),
+            scheduler: kikimimic_core::scheduler::StreamScheduler::new(),
         }
     }
 }
 
-impl kkm_core::Recognizer for WhisperRecognizer {
+impl kikimimic_core::Recognizer for WhisperRecognizer {
     fn push_audio(&mut self, samples: &[f32]) {
         self.scheduler.push_audio(samples);
     }
 
-    fn step(&mut self, lang: Option<&str>) -> Result<Option<kkm_core::scheduler::StepOutput>> {
+    fn step(&mut self, lang: Option<&str>) -> Result<Option<kikimimic_core::scheduler::StepOutput>> {
         // Borrowed for the decode only. Nothing else on this thread runs
         // during it, and nothing holds the models across calls.
         let models = &mut *self.models.borrow_mut();
@@ -246,7 +246,7 @@ impl kkm_core::Recognizer for WhisperRecognizer {
             .step(&mut models.engine, &mut models.vad, lang)
     }
 
-    fn finish(&mut self, lang: Option<&str>) -> Result<Option<kkm_core::scheduler::StepOutput>> {
+    fn finish(&mut self, lang: Option<&str>) -> Result<Option<kikimimic_core::scheduler::StepOutput>> {
         let models = &mut *self.models.borrow_mut();
         self.scheduler
             .finish(&mut models.engine, &mut models.vad, lang)

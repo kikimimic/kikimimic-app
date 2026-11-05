@@ -2,7 +2,7 @@
 //!
 //! Nothing here loads weights. A command streams bytes into
 //! `app_data_dir()/models` (created when a download starts) under a
-//! `.partial` name, and [`kkm_core::models::install_model_file`] renames that
+//! `.partial` name, and [`kikimimic_core::models::install_model_file`] renames that
 //! onto the real filename only after the body has arrived. The resolver
 //! searches that directory first, then the checkout's `models/`.
 
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use kkm_core::models::{self, Model, ModelManager};
+use kikimimic_core::models::{self, Model, ModelManager};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Whisper large-v3-turbo, q8_0. The upstream whisper.cpp model repository

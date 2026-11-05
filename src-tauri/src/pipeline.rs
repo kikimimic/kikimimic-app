@@ -21,9 +21,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::capture;
 use crate::record;
 use crate::translate::{Outcome, Status, TranslateLane};
-use kkm_core::language::LanguagePolicy;
-use kkm_core::models::{Model, ModelManager};
-use kkm_core::{Lane, Recognizer};
+use kikimimic_core::language::LanguagePolicy;
+use kikimimic_core::models::{Model, ModelManager};
+use kikimimic_core::{Lane, Recognizer};
 
 /// Decode cadence, measured step-start to step-start: a slow decode eats
 /// into the following idle time instead of stacking on top of it.
@@ -263,7 +263,7 @@ pub struct Ui {
 
 /// The loaded ASR models, shared by the lanes of a session and kept between
 /// sessions. Each lane recognises through its own [`Recognizer`] over this.
-type Models = Rc<RefCell<kkm_whisper::WhisperModels>>;
+type Models = Rc<RefCell<kikimimic_asr_whisper::WhisperModels>>;
 
 enum AsrBackend {
     Whisper(Models),
@@ -279,7 +279,7 @@ enum AsrBackend {
 fn recognizer(backend: &AsrBackend) -> Box<dyn Recognizer> {
     match backend {
         AsrBackend::Whisper(models) => {
-            Box::new(kkm_whisper::WhisperRecognizer::new(Rc::clone(models)))
+            Box::new(kikimimic_asr_whisper::WhisperRecognizer::new(Rc::clone(models)))
         }
         AsrBackend::Soniox {
             api_key,
@@ -331,7 +331,7 @@ fn emit_recording_dir(ui: &Ui, dir: Option<String>) {
 fn emit_step(
     ui: &Ui,
     lane: Lane,
-    out: kkm_core::scheduler::StepOutput,
+    out: kikimimic_core::scheduler::StepOutput,
     utterance_final: Option<UtterancePayload>,
 ) {
     let _ = ui.app.emit(
@@ -497,7 +497,7 @@ fn load_engines(
     if engines.is_none() {
         emit_status(ui, "loading", None);
         let paths = models(&ui.app);
-        let loaded = kkm_whisper::WhisperModels::load(
+        let loaded = kikimimic_asr_whisper::WhisperModels::load(
             &paths.resolve(Model::Asr)?.to_string_lossy(),
             &paths.resolve(Model::Vad)?.to_string_lossy(),
             spoken,
@@ -522,12 +522,12 @@ fn split(
         emit_status(ui, "idle", None);
     }
     let mut transcribe = |samples: &[f32], lang: Option<&str>| {
-        kkm_core::AsrEngine::transcribe(&mut models.borrow_mut().engine, samples, lang)
+        kikimimic_core::AsrEngine::transcribe(&mut models.borrow_mut().engine, samples, lang)
     };
     let mut translate = |text: &str, source: Option<&str>, target: &str| {
         let id = translations.next_id;
         translations.next_id += 1;
-        translations.lane.submit(kkm_core::translate::Job {
+        translations.lane.submit(kikimimic_core::translate::Job {
             id,
             lane: Lane::Mic,
             text: text.to_string(),
@@ -817,7 +817,7 @@ struct Submitted {
     translating: bool,
     /// The older sentence dropped to make room, whose line is still waiting
     /// for a translation that will now never arrive.
-    evicted: Option<kkm_core::translate::Job>,
+    evicted: Option<kikimimic_core::translate::Job>,
 }
 
 impl Translations {
@@ -855,7 +855,7 @@ impl Translations {
                 evicted: None,
             };
         };
-        let evicted = self.lane.submit(kkm_core::translate::Job {
+        let evicted = self.lane.submit(kikimimic_core::translate::Job {
             id,
             lane,
             text: text.to_string(),
@@ -906,7 +906,7 @@ struct LaneRuntime {
     /// Where this lane's audio is expected to continue, for the rare poll
     /// with no anchor to go on.
     next_position: usize,
-    resampler: kkm_core::resample::StreamResampler,
+    resampler: kikimimic_core::resample::StreamResampler,
     recognizer: Box<dyn Recognizer>,
     /// Downmix scratch buffer, reused across polls.
     mono: Vec<f32>,
@@ -933,7 +933,7 @@ impl LaneRuntime {
         session: capture::CaptureSession,
         recognizer: Box<dyn Recognizer>,
     ) -> anyhow::Result<Self> {
-        let resampler = kkm_core::resample::StreamResampler::new(session.src_rate)?;
+        let resampler = kikimimic_core::resample::StreamResampler::new(session.src_rate)?;
         Ok(Self {
             lane,
             session,
@@ -956,7 +956,7 @@ impl LaneRuntime {
     /// Milliseconds of audio handed to the recogniser so far — the clock its
     /// utterances are timed against.
     fn stream_ms(&self) -> u64 {
-        self.stream_samples as u64 * 1000 / kkm_core::resample::TARGET_RATE as u64
+        self.stream_samples as u64 * 1000 / kikimimic_core::resample::TARGET_RATE as u64
     }
 
     /// One poll of this lane: drain captured audio, then decode if its
@@ -994,7 +994,7 @@ impl LaneRuntime {
     /// Send a step's outcome to the UI, a finished utterance to the session's
     /// transcript (both timed against the recording), and the same utterance
     /// to the translation lane.
-    fn deliver(&mut self, poll: &mut Poll<'_>, out: kkm_core::scheduler::StepOutput) {
+    fn deliver(&mut self, poll: &mut Poll<'_>, out: kikimimic_core::scheduler::StepOutput) {
         if !self.gate.should_emit(&out) {
             return;
         }
@@ -1049,7 +1049,7 @@ impl LaneRuntime {
             emit_step(
                 poll.ui,
                 self.lane,
-                kkm_core::scheduler::StepOutput::default(),
+                kikimimic_core::scheduler::StepOutput::default(),
                 None,
             );
         }
@@ -1350,7 +1350,7 @@ struct EmitGate {
 }
 
 impl EmitGate {
-    fn should_emit(&mut self, out: &kkm_core::scheduler::StepOutput) -> bool {
+    fn should_emit(&mut self, out: &kikimimic_core::scheduler::StepOutput) -> bool {
         let has_news = !out.committed_delta.is_empty()
             || !out.volatile.is_empty()
             || out.utterance_final.is_some();
@@ -1634,7 +1634,7 @@ fn report_recording_failure(ui: &Ui, notices: &mut Notices, rec: &mut record::Se
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kkm_core::scheduler::StepOutput;
+    use kikimimic_core::scheduler::StepOutput;
 
     #[test]
     fn glossary_corrects_final_text_before_translation() {
@@ -1828,7 +1828,7 @@ mod tests {
         let fin = StepOutput {
             committed_delta: String::new(),
             volatile: String::new(),
-            utterance_final: Some(kkm_core::scheduler::Utterance {
+            utterance_final: Some(kikimimic_core::scheduler::Utterance {
                 text: "こんにちは".into(),
                 start_ms: 0,
                 end_ms: 1_000,

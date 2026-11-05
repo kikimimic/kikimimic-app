@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use kkm_core::resample::{StreamResampler, TARGET_RATE};
+use kikimimic_core::resample::{StreamResampler, TARGET_RATE};
 use transcribe_cpp::{CommitPolicy, Model, RunOptions, StreamOptions};
 
 /// Multiples of the encoder's 80ms frame (10ms hop x 8 subsampling). A chunk

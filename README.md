@@ -29,7 +29,7 @@ v1の実装は `v1` ブランチに保存されている。
 翻訳バックエンドはcdylibとして別にビルドする。llama.cppのggmlをwhisperのggmlと同じバイナリに入れられないため（[ADR-153805](docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md)）:
 
 ```sh
-cargo build --release -p kkm-translate-ggml
+cargo build --release -p kikimimic-mt-llama-dylib
 ```
 
 起動:

@@ -20,8 +20,8 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use kkm_core::mix::Mixer;
-use kkm_core::resample::StreamResampler;
+use kikimimic_core::mix::Mixer;
+use kikimimic_core::resample::StreamResampler;
 
 /// One rate for every file we write, so the lanes and their mix share a
 /// format regardless of what each device runs at. 48 kHz is what both macOS

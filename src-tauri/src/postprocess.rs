@@ -140,7 +140,7 @@ fn crop(path: &Path, start_ms: u64, end_ms: u64) -> anyhow::Result<Vec<f32>> {
         .take((to - from) as usize)
         .map(|s| s.map(|s| f32::from(s) / 32_768.0))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut resampler = kkm_core::resample::StreamResampler::new(spec.sample_rate)?;
+    let mut resampler = kikimimic_core::resample::StreamResampler::new(spec.sample_rate)?;
     let mut samples = resampler.process(&raw)?;
     samples.extend(resampler.flush()?);
     samples.resize(samples.len().max(MIN_CROP_SAMPLES), 0.0);
@@ -153,7 +153,7 @@ fn crop(path: &Path, start_ms: u64, end_ms: u64) -> anyhow::Result<Vec<f32>> {
 /// line was, so a session that was not translating stays untranslated.
 pub fn split(
     dir: &Path,
-    mut transcribe: impl FnMut(&[f32], Option<&str>) -> anyhow::Result<kkm_core::Hypothesis>,
+    mut transcribe: impl FnMut(&[f32], Option<&str>) -> anyhow::Result<kikimimic_core::Hypothesis>,
     mut translate: impl FnMut(&str, Option<&str>, &str) -> Option<String>,
 ) -> anyhow::Result<()> {
     let mut turns = read_rttm(&dir.join("postprocess/nemotron.rttm"))?;

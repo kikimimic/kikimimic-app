@@ -1,20 +1,20 @@
 //! Step 2 risk spike: whisper-rs statically linked into this binary while
-//! llama-cpp-2 lives in a dlopen'd cdylib (kkm-translate-ggml).
+//! llama-cpp-2 lives in a dlopen'd cdylib (kikimimic-mt-llama-dylib).
 //!
 //! Success criterion: windowed ASR decodes and sentence translations run
 //! concurrently with correct output and no ggml symbol-collision SIGABRT
 //! (the failure mode documented in docs/step0-results.md).
 //!
 //! Usage:
-//!   cargo build --release -p kkm-translate-ggml
+//!   cargo build --release -p kikimimic-mt-llama-dylib
 //!   cargo run --release -p spike --bin cdylib-check \
-//!     --no-default-features --features asr [-- path/to/libkkm_translate_ggml.dylib]
+//!     --no-default-features --features asr [-- path/to/libkikimimic_mt_llama_dylib.dylib]
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use kkm_core::AsrEngine;
+use kikimimic_core::AsrEngine;
 
 const WHISPER_MODEL: &str = "models/ggml-large-v3-turbo-q8_0.bin";
 const LLM_MODEL: &str = "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf";
@@ -37,14 +37,14 @@ type ShutdownFn = unsafe extern "C" fn(*mut c_void);
 fn main() -> Result<()> {
     let dylib_path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "target/release/libkkm_translate_ggml.dylib".into());
+        .unwrap_or_else(|| "target/release/libkikimimic_mt_llama_dylib.dylib".into());
 
     // ASR under load on its own thread, like the app's pipeline worker:
     // re-decode a growing window for every second of audio, no idle time.
     let asr = std::thread::spawn(|| -> Result<(String, u128)> {
         let audio = read_wav(AUDIO_JA)?;
         let mut engine =
-            kkm_whisper::WhisperEngine::load(WHISPER_MODEL, &["ja".into(), "en".into()])?;
+            kikimimic_asr_whisper::WhisperEngine::load(WHISPER_MODEL, &["ja".into(), "en".into()])?;
         let mut worst = 0u128;
         let mut text = String::new();
         for end_s in 1..=audio.len().div_ceil(SAMPLE_RATE) {

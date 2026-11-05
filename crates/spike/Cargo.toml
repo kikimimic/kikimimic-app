@@ -10,15 +10,15 @@ license.workspace = true
 # measurement while the unification strategy is decided (see plan.md Step 0).
 [features]
 default = ["asr", "llm"]
-asr = ["dep:whisper-rs", "dep:kkm-whisper", "dep:cpal"]
+asr = ["dep:whisper-rs", "dep:kikimimic-asr-whisper", "dep:cpal"]
 llm = ["dep:llama-cpp-2"]
 # transcribe.cpp vendors a third ggml, so it is exclusive with `asr` for the
 # same reason `asr` and `llm` are: one binary, one ggml.
 parakeet = ["dep:transcribe-cpp"]
 
 [dependencies]
-kkm-core = { path = "../kkm-core" }
-kkm-whisper = { path = "../kkm-whisper", optional = true }
+kikimimic-core = { path = "../kikimimic-core" }
+kikimimic-asr-whisper = { path = "../kikimimic-asr-whisper", optional = true }
 anyhow = "1"
 whisper-rs = { version = "0.16.0", features = ["metal"], optional = true }
 llama-cpp-2 = { version = "0.1.154", features = ["metal"], optional = true }
@@ -51,7 +51,7 @@ path = "src/bin/pipeline_check.rs"
 required-features = ["asr"]
 
 # Must be built WITHOUT the llm feature: the whole point is that llama
-# lives in the kkm-translate-ggml cdylib, not in this binary.
+# lives in the kikimimic-mt-llama-dylib cdylib, not in this binary.
 [[bin]]
 name = "cdylib-check"
 path = "src/bin/cdylib_check.rs"

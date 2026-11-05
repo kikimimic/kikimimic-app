@@ -33,7 +33,7 @@ if ! command -v cargo >/dev/null 2>&1 || ! command -v bun >/dev/null 2>&1 || ! c
 fi
 
 echo "==> translation backend (cdylib)"
-cargo build --release -p kkm-translate-ggml
+cargo build --release -p kikimimic-mt-llama-dylib
 
 echo "==> app bundle"
 bun run tauri build

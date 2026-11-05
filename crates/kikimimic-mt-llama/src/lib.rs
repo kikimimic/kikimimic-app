@@ -1,4 +1,4 @@
-//! [`Translator`] over the llama.cpp backend in the `kkm-translate-ggml`
+//! [`Translator`] over the llama.cpp backend in the `kikimimic-mt-llama-dylib`
 //! cdylib, reached by `dlopen` rather than by linking.
 //!
 //! Linking it would defeat the isolation: llama-cpp-2 and whisper-rs each
@@ -14,7 +14,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use kkm_core::Translator;
+use kikimimic_core::Translator;
 
 /// Points at a specific build of the backend, for development and bisecting.
 const DYLIB_ENV: &str = "KKM_TRANSLATE_DYLIB";
@@ -33,15 +33,15 @@ type ShutdownFn = unsafe extern "C" fn(*mut c_void);
 pub const fn dylib_name() -> &'static str {
     #[cfg(target_os = "macos")]
     {
-        "libkkm_translate_ggml.dylib"
+        "libkikimimic_mt_llama_dylib.dylib"
     }
     #[cfg(target_os = "windows")]
     {
-        "kkm_translate_ggml.dll"
+        "kikimimic_mt_llama_dylib.dll"
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        "libkkm_translate_ggml.so"
+        "libkikimimic_mt_llama_dylib.so"
     }
 }
 
@@ -93,7 +93,7 @@ pub fn find_dylib() -> Result<PathBuf> {
         .cloned()
         .with_context(|| {
             format!(
-                "no {} in {} (build it with `cargo build --release -p kkm-translate-ggml`)",
+                "no {} in {} (build it with `cargo build --release -p kikimimic-mt-llama-dylib`)",
                 dylib_name(),
                 candidates
                     .iter()
@@ -234,9 +234,9 @@ mod tests {
     /// of RAM, so it is opt-in:
     ///
     /// ```sh
-    /// cargo build --release -p kkm-translate-ggml
-    /// KKM_TRANSLATE_DYLIB="$PWD/target/release/libkkm_translate_ggml.dylib" \
-    ///   cargo test -p kkm-translate -- --ignored --nocapture
+    /// cargo build --release -p kikimimic-mt-llama-dylib
+    /// KKM_TRANSLATE_DYLIB="$PWD/target/release/libkikimimic_mt_llama_dylib.dylib" \
+    ///   cargo test -p kikimimic-mt-llama -- --ignored --nocapture
     /// ```
     ///
     /// The override is needed because a test binary lives in
@@ -245,12 +245,12 @@ mod tests {
     #[test]
     #[ignore = "loads a multi-gigabyte model"]
     fn translates_with_and_without_a_stated_source_language() {
-        let models = kkm_core::models::ModelManager::new(vec![PathBuf::from(concat!(
+        let models = kikimimic_core::models::ModelManager::new(vec![PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../models"
         ))]);
         let model = models
-            .resolve(kkm_core::models::Model::Translator)
+            .resolve(kikimimic_core::models::Model::Translator)
             .expect("translation model");
         let mut translator = GgmlTranslator::load(&model).expect("load backend");
 

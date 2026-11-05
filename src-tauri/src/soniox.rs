@@ -5,8 +5,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use kkm_core::scheduler::{StepOutput, Utterance};
-use kkm_core::Recognizer;
+use kikimimic_core::scheduler::{StepOutput, Utterance};
+use kikimimic_core::Recognizer;
 use serde::Deserialize;
 use serde_json::json;
 use tungstenite::stream::MaybeTlsStream;

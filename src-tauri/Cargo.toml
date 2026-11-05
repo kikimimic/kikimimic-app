@@ -18,11 +18,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 cpal = "0.18.1"
 dotenvy = "0.15"
 hound = "3.5"
-kkm-core = { path = "../crates/kkm-core" }
-# The dlopen host side only. kkm-translate-ggml is NOT a dependency: linking
+kikimimic-core = { path = "../crates/kikimimic-core" }
+# The dlopen host side only. kikimimic-mt-llama-dylib is NOT a dependency: linking
 # it would put llama's ggml next to whisper's (docs/step0-results.md).
-kkm-translate = { path = "../crates/kkm-translate" }
-kkm-whisper = { path = "../crates/kkm-whisper" }
+kikimimic-mt-llama = { path = "../crates/kikimimic-mt-llama" }
+kikimimic-asr-whisper = { path = "../crates/kikimimic-asr-whisper" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "rustls"] }
 rtrb = "0.4.0"
 serde = { version = "1", features = ["derive"] }

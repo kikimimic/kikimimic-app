@@ -13,8 +13,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use kkm_core::translate::{Job, TranslationQueue};
-use kkm_core::{Lane, Translator};
+use kikimimic_core::translate::{Job, TranslationQueue};
+use kikimimic_core::{Lane, Translator};
 
 /// Sentences that may wait at once. Sized for a burst — both lanes talking
 /// over each other, or one long sentence holding the model — not for a
@@ -189,8 +189,8 @@ fn run(shared: &Shared, results: &Sender<Outcome>, model_path: &std::path::Path)
                         let source = job
                             .source
                             .as_deref()
-                            .map_or("", kkm_core::language::language_name);
-                        let target = kkm_core::language::language_name(&job.target);
+                            .map_or("", kikimimic_core::language::language_name);
+                        let target = kikimimic_core::language::language_name(&job.target);
                         match translator.translate(&job.text, source, target) {
                             Ok(text) => Status::Done(text),
                             // One bad sentence must not take the lane down:
@@ -219,7 +219,7 @@ fn load(
     load_error: &mut Option<String>,
     model_path: &std::path::Path,
 ) {
-    match kkm_translate::GgmlTranslator::load(model_path) {
+    match kikimimic_mt_llama::GgmlTranslator::load(model_path) {
         Ok(t) => *backend = Some(Box::new(t)),
         Err(e) => {
             let msg = format!("translation unavailable: {e:#}");

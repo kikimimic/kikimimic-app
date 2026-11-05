@@ -15,7 +15,7 @@ mod translate;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use kkm_core::language::LanguagePolicy;
+use kikimimic_core::language::LanguagePolicy;
 use tauri::{Manager, State};
 
 struct PipelineHandle {

@@ -2065,9 +2065,9 @@ dependencies = [
  "dispatch2",
  "dotenvy",
  "hound",
- "kkm-core",
- "kkm-translate",
- "kkm-whisper",
+ "kikimimic-asr-whisper",
+ "kikimimic-core",
+ "kikimimic-mt-llama",
  "mach2 0.4.3",
  "objc2",
  "objc2-core-audio",
@@ -2084,7 +2084,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "kkm-core"
+name = "kikimimic-asr-whisper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kikimimic-core",
+ "whisper-rs",
+]
+
+[[package]]
+name = "kikimimic-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2092,29 +2101,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "kkm-translate"
+name = "kikimimic-mt-llama"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kkm-core",
+ "kikimimic-core",
  "libloading 0.8.9",
 ]
 
 [[package]]
-name = "kkm-translate-ggml"
+name = "kikimimic-mt-llama-dylib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "llama-cpp-2",
-]
-
-[[package]]
-name = "kkm-whisper"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "kkm-core",
- "whisper-rs",
 ]
 
 [[package]]
@@ -3914,8 +3914,8 @@ dependencies = [
  "cpal",
  "dispatch2",
  "hound",
- "kkm-core",
- "kkm-whisper",
+ "kikimimic-asr-whisper",
+ "kikimimic-core",
  "libc",
  "libloading 0.8.9",
  "llama-cpp-2",
