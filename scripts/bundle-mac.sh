@@ -11,7 +11,9 @@
 #     permission by returning silence (docs/step0-tap-results.md).
 #
 # Usage: scripts/bundle-mac.sh [--open | --zip]
-# Signs ad hoc unless KKM_SIGN_IDENTITY names a Developer ID identity. With
+# Signs ad hoc unless KKM_SIGN_IDENTITY names a signing identity (a
+# "Developer ID Application" one for distribution, or a local self-signed one
+# so macOS keeps the microphone and audio permissions across rebuilds). With
 # --zip and KKM_NOTARY_PROFILE (a `notarytool store-credentials` profile),
 # the zip is notarized and the app stapled.
 set -euo pipefail
@@ -65,10 +67,16 @@ PLIST
 
 echo "==> sign"
 identity="${KKM_SIGN_IDENTITY:--}"
-# A Developer ID signature needs the hardened runtime for notarization.
+# Only a Developer ID build is notarized, which needs the hardened runtime, a
+# secure timestamp, and the entitlements the runtime would otherwise deny.
+# Ad hoc and self-signed local builds skip all three: Apple's timestamp server
+# rejects non-Apple certificates, and library validation would refuse the
+# translation dylib from a certificate with no team ID.
 runtime=()
-[[ "$identity" != "-" ]] && runtime=(--options runtime --timestamp)
-codesign --force "${runtime[@]}" --sign "$identity" "$app/Contents/Frameworks/$dylib"
+if [[ "$identity" == "Developer ID Application"* ]]; then
+  runtime=(--options runtime --timestamp --entitlements app/Kikimimic.entitlements)
+fi
+codesign --force --sign "$identity" "$app/Contents/Frameworks/$dylib"
 codesign --force "${runtime[@]}" --sign "$identity" "$app"
 codesign --verify --strict "$app"
 

@@ -58,7 +58,7 @@ Development settings:
 
 | Variable | Effect |
 |---|---|
-| `KKM_MODELS_DIR` | Also look for model files here (e.g. an existing `models/`) |
+| `KKM_MODELS_DIR` | Also look for model files here (e.g. an existing `models/`); several separated by `:` |
 | `KKM_RECORD_DIR` | Where recordings go (default `~/Music/kikimimic`) |
 | `KKM_TRANSLATE_DYLIB` | Use this build of the translation backend |
 | `KKM_LLM_GPU_LAYERS` | Layers of the translation model on the GPU (`0` for CPU) |
