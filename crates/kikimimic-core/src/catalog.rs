@@ -39,6 +39,7 @@ pub struct ModelEntry {
     pub license: License,
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Empty for a model the OS provides: nothing to download, always ready.
     pub files: Vec<FileSpec>,
     /// Opaque to the core; the engine parses it (e.g. `prompt = "plamo3"`).
     #[serde(default)]
@@ -98,9 +99,6 @@ impl Catalog {
         for m in &self.models {
             if seen.insert(m.id.as_str(), ()).is_some() {
                 return Err(format!("duplicate model id: {}", m.id));
-            }
-            if m.files.is_empty() {
-                return Err(format!("{} has no files", m.id));
             }
             for f in &m.files {
                 let hex = f.sha256.len() == 64 && f.sha256.bytes().all(|b| b.is_ascii_hexdigit());

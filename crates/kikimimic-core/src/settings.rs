@@ -16,6 +16,9 @@ pub struct Settings {
     pub asr_model: String,
     /// `None`: no translation model chosen.
     pub mt_model: Option<String>,
+    /// Empty the session screen when a recording starts.
+    #[serde(default)]
+    pub clear_on_start: bool,
 }
 
 impl Settings {
@@ -25,6 +28,7 @@ impl Settings {
             glossary: Glossary::default(),
             asr_model: catalog.defaults.asr.clone(),
             mt_model: catalog.defaults.mt.clone(),
+            clear_on_start: false,
         }
     }
 
@@ -106,6 +110,20 @@ mod tests {
         s.asr_model = "removed-model".into();
         std::fs::write(&p, toml::to_string(&s).unwrap()).unwrap();
         assert_eq!(Settings::load(&p, c), Settings::defaults(c));
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn settings_saved_before_clear_on_start_existed_still_load() {
+        let c = Catalog::builtin();
+        let mut s = Settings::defaults(c);
+        s.mt_model = None;
+        let text = toml::to_string(&s)
+            .unwrap()
+            .replace("clear_on_start = false\n", "");
+        let p = path("no-clear-on-start");
+        std::fs::write(&p, text).unwrap();
+        assert_eq!(Settings::load(&p, c), s);
         std::fs::remove_file(p).unwrap();
     }
 

@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest, windows-latest]
+        os: [macos-26, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       # llama.cpp (a git dependency of the translation dylib, resolved with
@@ -43,9 +43,10 @@ jobs:
       - run: cargo test -p kikimimic-core
 
   # Engines, capture and the GPUI app link Metal builds of whisper.cpp and
-  # llama.cpp and macOS audio APIs, so they build on macOS for now.
+  # llama.cpp and macOS audio APIs, so they build on macOS for now; the macOS 26
+  # SDK, because kikimimic-asr-apple compiles against SpeechAnalyzer.
   macos:
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -57,7 +58,7 @@ jobs:
 
   # MIT app, GPL crates one `use` away in Zed's repo (ADR-120002).
   licenses:
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

@@ -30,6 +30,7 @@ shows its license first.
 | Model | Use | License |
 |---|---|---|
 | Whisper large-v3-turbo (q8_0) + Silero VAD | Recognition (default) | MIT |
+| macOS Speech Recognition (SpeechAnalyzer) | Recognition (macOS 26+, nothing to download; listens in the first spoken language) | Part of macOS |
 | Qwen3 4B Instruct 2507 (Q4_K_M) | Translation (default) | Apache-2.0 |
 | PLaMo 3 Translate 2B (Q4_K_M) | Translation (optional) | PLaMo Community License — free for personal and non-commercial use; commercial use needs registration with PFN |
 
@@ -39,7 +40,7 @@ The list lives in [models/catalog.toml](models/catalog.toml).
 
 Rust is pinned by `rust-toolchain.toml` (rustup picks it up). `nix develop`
 provides everything else; without Nix you need the Xcode command line tools
-and CMake.
+(with the macOS 26 SDK or later, for SpeechAnalyzer) and CMake.
 
 The translation backend is a separate cdylib, because llama.cpp's ggml cannot
 share one binary with whisper.cpp's
