@@ -23,6 +23,7 @@
 | モデル | 用途 | ライセンス |
 |---|---|---|
 | Whisper large-v3-turbo（q8_0）＋ Silero VAD | 文字起こし（既定） | MIT |
+| Haas ja v1.0（Q8_0、Q4_K）＋ Silero VAD | 文字起こし（任意、日本語のみ。speech.cpp で動き、`scripts/bundle-mac.sh` が `libspeech` として同梱） | Apache-2.0 |
 | Qwen3 4B Instruct 2507（Q4_K_M） | 翻訳（既定） | Apache-2.0 |
 | PLaMo 3 Translate 2B（Q4_K_M） | 翻訳（任意） | PLaMo Community License。個人・非商用は無料、商用は PFN への登録が必要 |
 

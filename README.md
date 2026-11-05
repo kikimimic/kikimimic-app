@@ -30,6 +30,7 @@ shows its license first.
 | Model | Use | License |
 |---|---|---|
 | Whisper large-v3-turbo (q8_0) + Silero VAD | Recognition (default) | MIT |
+| Haas ja v1.0 (Q8_0, Q4_K) + Silero VAD | Recognition (optional, Japanese only; runs in speech.cpp, which `scripts/bundle-mac.sh` bundles as `libspeech`) | Apache-2.0 |
 | Qwen3 4B Instruct 2507 (Q4_K_M) | Translation (default) | Apache-2.0 |
 | PLaMo 3 Translate 2B (Q4_K_M) | Translation (optional) | PLaMo Community License — free for personal and non-commercial use; commercial use needs registration with PFN |
 
