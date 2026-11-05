@@ -15,6 +15,13 @@ pub struct GlossaryEntry {
     pub right: String,
 }
 
+/// A word to listen for: how to write it, and what it may sound like.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Keyword {
+    pub written: String,
+    pub readings: Vec<String>,
+}
+
 impl Glossary {
     pub fn validate(&self) -> Result<(), String> {
         for e in &self.entries {
@@ -30,6 +37,29 @@ impl Glossary {
         self.entries
             .iter()
             .fold(text.to_string(), |t, e| t.replace(&e.wrong, &e.right))
+    }
+
+    /// Each right spelling with what the recognizer wrote instead, for a
+    /// recognizer that can listen for words (Haas's custom vocabulary).
+    pub fn keywords(&self) -> Vec<Keyword> {
+        let mut out: Vec<Keyword> = Vec::new();
+        for e in &self.entries {
+            let at = match out.iter().position(|k| k.written == e.right) {
+                Some(i) => i,
+                None => {
+                    out.push(Keyword {
+                        written: e.right.clone(),
+                        readings: Vec::new(),
+                    });
+                    out.len() - 1
+                }
+            };
+            let k = &mut out[at];
+            if e.wrong != k.written && !k.readings.contains(&e.wrong) {
+                k.readings.push(e.wrong.clone());
+            }
+        }
+        out
     }
 
     /// Correct spellings, handed to the translator as terms to keep.
@@ -60,6 +90,27 @@ mod tests {
     fn every_misrecognition_is_replaced() {
         let g = g(&[("きき耳ミック", "Kikimimic"), ("ジェミナイ", "Gemini")]);
         assert_eq!(g.apply("きき耳ミックとジェミナイ"), "KikimimicとGemini");
+    }
+
+    #[test]
+    fn keywords_list_each_right_spelling_with_what_was_heard_instead() {
+        let g = g(&[
+            ("ジェミナイ", "Gemini"),
+            ("きき耳ミック", "Kikimimic"),
+            ("ジェミニ", "Gemini"),
+            ("Kikimimic", "Kikimimic"),
+        ]);
+        let kw = |written: &str, readings: &[&str]| Keyword {
+            written: written.into(),
+            readings: readings.iter().map(|r| r.to_string()).collect(),
+        };
+        assert_eq!(
+            g.keywords(),
+            [
+                kw("Gemini", &["ジェミナイ", "ジェミニ"]),
+                kw("Kikimimic", &["きき耳ミック"]),
+            ]
+        );
     }
 
     #[test]
