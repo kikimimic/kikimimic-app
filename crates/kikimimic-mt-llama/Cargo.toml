@@ -1,0 +1,21 @@
+[package]
+name = "kikimimic-mt-llama"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+# Host side of the translation backend: it dlopens kikimimic-mt-llama-dylib rather
+# than linking it, which is the whole point — llama-cpp-2 must not end up in
+# the same image as whisper-rs (docs/step0-results.md). Nothing here pulls in
+# llama-cpp-2, and nothing here may.
+[dependencies]
+anyhow = "1"
+toml = "1"
+libloading = "0.9"
+kikimimic-core = { path = "../kikimimic-core" }
+
+[dev-dependencies]
+# Spike S2 runs recognition next to translation in one test binary: whisper
+# statically, llama through the isolated dylib, as the app does.
+hound = "3.5"
+kikimimic-asr-whisper = { path = "../kikimimic-asr-whisper" }

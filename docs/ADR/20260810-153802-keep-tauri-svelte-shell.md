@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | proposed |
+| **Status** | superseded by [ADR-120002](20261105-120002-replace-tauri-svelte-with-gpui.md) |
 | **Date** | 2026-08-10 |
 | **Decision-makers** | staticWagomU |
 | **Consulted** | Claude Code（egui / Slint / Iced との比較検討） |

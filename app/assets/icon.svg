@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Kikimimic: two ears (the mic lane and the system lane) around a voice. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f3b52"/>
+      <stop offset="1" stop-color="#151b28"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <g fill="none" stroke-linecap="round" stroke-width="56">
+    <path d="M330 300 C 230 380, 230 644, 330 724" stroke="#7dd3fc"/>
+    <path d="M694 300 C 794 380, 794 644, 694 724" stroke="#fda4af"/>
+  </g>
+  <g stroke="#f8fafc" stroke-linecap="round" stroke-width="44">
+    <line x1="412" y1="452" x2="412" y2="572"/>
+    <line x1="472" y1="392" x2="472" y2="632"/>
+    <line x1="532" y1="342" x2="532" y2="682"/>
+    <line x1="592" y1="412" x2="592" y2="612"/>
+  </g>
+</svg>

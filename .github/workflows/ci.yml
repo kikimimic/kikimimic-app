@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  # The headless core has no device, GPU or network dependency, so it must
+  # build and pass on every platform we intend to ship (ADR-120001).
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # llama.cpp (a git dependency of the translation dylib, resolved with
+      # the workspace) has paths beyond Windows' 260-character limit.
+      - if: runner.os == 'Windows'
+        run: |
+          git config --global core.longpaths true
+          echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p kikimimic-core --all-targets
+      - run: cargo test -p kikimimic-core
+
+  # Engines, capture and the GPUI app link Metal builds of whisper.cpp and
+  # llama.cpp and macOS audio APIs, so they build on macOS for now.
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+
+  # MIT app, GPL crates one `use` away in Zed's repo (ADR-120002).
+  licenses:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python3 -I scripts/check-licenses.py Cargo.toml

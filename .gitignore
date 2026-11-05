@@ -23,8 +23,9 @@ references/
 cclens.db
 
 # v2 spike artifacts
-/target
-/models
+target/
+/models/*
+!/models/catalog.toml
 /assets
 
 # Local secrets (SONIOX_API_KEY)

@@ -1,0 +1,46 @@
+# Every model Kikimimic can download: the one list the app, the core and the
+# engine registry read (a test fails when they disagree). Models are never
+# bundled; each entry states its license, and `requires_acceptance` makes the
+# app ask before downloading.
+
+[defaults]
+asr = "whisper-large-v3-turbo-q8_0"
+mt = "qwen3-4b-instruct-2507-q4_k_m"
+
+[[model]]
+id = "whisper-large-v3-turbo-q8_0"
+kind = "asr"
+engine = "whisper"
+title = "Whisper large-v3-turbo (q8_0)"
+license = { name = "MIT", url = "https://github.com/openai/whisper/blob/main/LICENSE" }
+# q8_0, not q5_0: on Metal q5_0 decodes slower (docs/step0-results.md).
+requires = ["silero-vad-v5.1.2"]
+files = [{ name = "ggml-large-v3-turbo-q8_0.bin", url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin", sha256 = "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1", bytes = 874188075 }]
+
+[[model]]
+id = "silero-vad-v5.1.2"
+kind = "vad"
+engine = "whisper"
+title = "Silero VAD v5.1.2"
+license = { name = "MIT", url = "https://github.com/snakers4/silero-vad/blob/master/LICENSE" }
+files = [{ name = "ggml-silero-v5.1.2.bin", url = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin", sha256 = "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf", bytes = 885098 }]
+
+[[model]]
+id = "qwen3-4b-instruct-2507-q4_k_m"
+kind = "mt"
+engine = "llama"
+title = "Qwen3 4B Instruct 2507 (Q4_K_M)"
+license = { name = "Apache-2.0", url = "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE" }
+options = { prompt = "chatml" }
+files = [{ name = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", url = "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", sha256 = "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597", bytes = 2497281120 }]
+
+[[model]]
+id = "plamo-3-translate-2b-q4_k_m"
+kind = "mt"
+engine = "llama"
+title = "PLaMo 3 Translate 2B (Q4_K_M)"
+# Free for personal and non-commercial use; commercial use needs registration
+# with PFN (and a separate agreement above ¥1bn annual revenue).
+license = { name = "PLaMo Community License", url = "https://huggingface.co/pfnet/plamo-3-translate-2b/blob/main/LICENSE/en", requires_acceptance = true }
+options = { prompt = "plamo3" }
+files = [{ name = "plamo-3-translate-2b-Q4_K_M.gguf", url = "https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF/resolve/main/plamo-3-translate-2b-Q4_K_M.gguf", sha256 = "2c288ecc7ebfe60c3561726580da3583767f3c41ca3ef5c6825bf6c4cc060787", bytes = 1807192480 }]

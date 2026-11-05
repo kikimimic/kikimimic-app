@@ -26,20 +26,17 @@
             SDKROOT = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk";
 
             packages = [
-              pkgs.bun
-              pkgs.cargo
+              # rustup, not nixpkgs' cargo/rustc: rust-toolchain.toml pins the
+              # version GPUI needs, and rustup is what reads it.
+              pkgs.rustup
               pkgs.cargo-flamegraph
-              pkgs.rustc
-              pkgs.rustfmt
-              pkgs.clippy
-              pkgs.rust-analyzer
               pkgs.pkg-config
               pkgs.cmake
               pkgs.uv
             ];
 
             shellHook = ''
-              echo "Kikimimic dev shell: bun $(bun --version), cargo $(cargo --version | awk '{print $2}'), flamegraph $(cargo flamegraph --version | awk '{print $2}')"
+              echo "Kikimimic dev shell: cargo $(cargo --version | awk '{print $2}')"
             '';
           };
         }

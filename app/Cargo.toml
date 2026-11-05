@@ -1,0 +1,32 @@
+[package]
+name = "kikimimic"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+# GPUI comes from Zed's monorepo at a pinned release tag: crates.io stopped
+# getting releases at 0.2.2 (ADR-120002). Bump the tag on purpose, one PR at a
+# time. Never depend on Zed's GPL crates (`ui`, `theme`, ...).
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+dirs = "7"
+futures = "0.3"
+sys-locale = "0.3"
+kikimimic-asr-whisper = { path = "../crates/kikimimic-asr-whisper" }
+kikimimic-capture = { path = "../crates/kikimimic-capture" }
+kikimimic-core = { path = "../crates/kikimimic-core" }
+kikimimic-diarize-nemotron = { path = "../crates/kikimimic-diarize-nemotron" }
+kikimimic-mt-llama = { path = "../crates/kikimimic-mt-llama" }
+ureq = "3"
+unicode-segmentation = "1"
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
+# runtime_shaders: compile Metal shaders at launch instead of at build time, so
+# building needs only the Command Line Tools, not the full Xcode metal compiler.
+# ponytail: costs a little startup time; precompile in release bundles if it shows.
+gpui_platform = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["font-kit", "runtime_shaders"] }
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["test-support"] }
+
