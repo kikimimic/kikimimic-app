@@ -439,7 +439,21 @@ UI の操作 ───Command(mpsc)────────────▶│ wa
 
 ## 実装との突き合わせ
 
-（実装中に、受け入れた逸脱とその根拠をここに記録する）
+実装（2026-11-05）で設計から変えた点と、それでも設計の約束が守られている理由です。
+
+| 設計 | 実装 | 理由・約束が守られている根拠 |
+|---|---|---|
+| `inference` を独立した sans-IO の状態機械にする | 作らなかった。cadence と「MT は1件ずつ」は conductor（`Lane::stepping`、`Ledger::in_flight`）が持ち、エンジンの実行は runtime の ASR/MT スレッドと `sim` が担う | 状態の持ち主は conductor だけのまま。sim は conductor の出力をその場で実行するので、テストの決定性も保たれる |
+| `Event::Prompt`（出力デバイス切り替え） | `Event::Source(SourceEvent)` と `Kikimimic::decide_source` | 問い合わせの中身はキャプチャのバックエンドが持つので、core はそれを素通しする形にした。古い判断は uid で弾く |
+| `Event::ModelInstall` | 進捗はアプリの `downloads.rs` が持つ。core の `ModelStore::state` で状態を読む | ネットワークを扱うのはアプリだけ、という設計を守るため、進捗も同じ側に置いた |
+| `Event::Job` | `Event::PostProcess { recording, state }` | 後処理は話者分離だけなので、名前を中身に合わせた |
+| `Kikimimic::start` が `Result` を返す | 返さない。失敗は `Event::Status(Phase::Error)` で届く | エンジンの読み込みを遅延させたため、起動時に失敗する処理がない |
+| `Config` の `engines` だけでエンジンを選ぶ | `catalog` も `Config` で渡す | テストで小さなカタログを使うため。アプリは `Catalog::builtin()` を渡す |
+| 録音の開始時刻（`started_at_ms`） | `started: Option<String>`（ディレクトリ名の `yyyyMMddHHmmss`） | core にタイムゾーン（chrono）を入れないため。アプリが現地時刻に直す |
+| GPU は ASR と MT を並行（S2 で判断） | 並行のまま | S2 の暫定結果（docs/plamo-spike-results.md）で、直列化に切り替える根拠がなかった |
+| `kikimimic-mt-llama-dylib` は crates.io の `llama-cpp-2` | git リビジョンに固定 | crates.io 版の llama.cpp が PLaMo 3 のトークナイザを持たないため（docs/plamo-spike-results.md） |
+
+受け入れの判断は、この作業の依頼者（staticWagomU）の「全部進めていこう」に基づいて実装者が行いました。見直しが必要なら、この表から始めてください。
 
 ## 未決事項とリスク
 
