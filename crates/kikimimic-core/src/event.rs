@@ -23,6 +23,9 @@ pub enum Event {
         outcome: TranslationOutcome,
     },
     Status(StatusView),
+    /// A capture source needs a decision or reports one (output-device
+    /// switching). Answer with `Kikimimic::decide_source`.
+    Source(crate::capture::SourceEvent),
 }
 
 #[derive(Clone, Debug, PartialEq)]

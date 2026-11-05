@@ -66,6 +66,7 @@ pub enum SessionMode {
 enum Msg {
     Input(Input),
     Start(SessionMode),
+    Decide(crate::capture::SourceDecision),
 }
 
 /// The app's handle. Cheap to clone; every call is a message to the
@@ -150,6 +151,11 @@ impl Kikimimic {
     /// Idempotent. `Status(Idle)` follows once translations have drained.
     pub fn stop_session(&self) {
         let _ = self.tx.send(Msg::Input(Input::Command(Command::Stop)));
+    }
+
+    /// Answer a `Event::Source` question (follow the new output device?).
+    pub fn decide_source(&self, decision: crate::capture::SourceDecision) {
+        let _ = self.tx.send(Msg::Decide(decision));
     }
 
     pub fn settings(&self) -> Settings {
@@ -252,6 +258,11 @@ impl Shell {
                 if !self.conductor.is_idle() {
                     self.handle(Input::Tick);
                 }
+                for handle in &mut self.handles {
+                    while let Some(event) = handle.poll_event() {
+                        let _ = self.events.send(Event::Source(event));
+                    }
+                }
             }
             let wait = next_tick.saturating_duration_since(Instant::now());
             match rx.recv_timeout(wait) {
@@ -259,6 +270,11 @@ impl Shell {
                 Ok(Msg::Start(mode)) => {
                     if let Some(start) = self.open_session(mode) {
                         self.handle(Input::Command(Command::Start(start)));
+                    }
+                }
+                Ok(Msg::Decide(decision)) => {
+                    for handle in &mut self.handles {
+                        handle.decide(decision.clone());
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}

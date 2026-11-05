@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use kikimimic_core::capture::{channel, CaptureStream, Format};
+use kikimimic_core::capture::{channel, CaptureStream, Format, SourceDecision, SourceEvent};
 use kikimimic_core::catalog::Catalog;
 use kikimimic_core::domain::{HostNanos, LaneId, LaneRole};
 use kikimimic_core::engine::{AsrEngine, EngineRegistry, LoadRequest};
@@ -16,8 +16,22 @@ use kikimimic_core::{CaptureBackend, CaptureHandle, Config, Events, Kikimimic, S
 
 /// Delivers a steady tone in 10 ms callbacks until its handle is dropped.
 struct Tone;
-struct Running(Arc<AtomicBool>);
-impl CaptureHandle for Running {}
+struct Running(
+    Arc<AtomicBool>,
+    Vec<SourceEvent>,
+    Arc<std::sync::Mutex<Vec<SourceDecision>>>,
+);
+impl CaptureHandle for Running {
+    fn poll_event(&mut self) -> Option<SourceEvent> {
+        self.1.pop()
+    }
+    fn decide(&mut self, decision: SourceDecision) {
+        self.2.lock().unwrap().push(decision);
+    }
+}
+
+static DECISIONS: std::sync::OnceLock<Arc<std::sync::Mutex<Vec<SourceDecision>>>> =
+    std::sync::OnceLock::new();
 impl Drop for Running {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Relaxed);
@@ -43,7 +57,13 @@ impl CaptureBackend for Tone {
                 std::thread::sleep(Duration::from_millis(10));
             }
         });
-        Ok((s, Box::new(Running(running))))
+        let proposal = SourceEvent::OutputSwitchProposed {
+            capturing: "Speakers".into(),
+            detected: "AirPods".into(),
+            uid: "airpods".into(),
+        };
+        let decisions = Arc::clone(DECISIONS.get_or_init(Default::default));
+        Ok((s, Box::new(Running(running, vec![proposal], decisions))))
     }
 }
 
@@ -165,4 +185,36 @@ fn a_session_without_its_model_is_refused_with_a_reason() {
         matches!(&status.phase, Phase::Error { message } if message.contains("not downloaded")),
         "{status:?}"
     );
+}
+
+#[test]
+fn a_source_question_reaches_the_ui_and_its_answer_reaches_the_source() {
+    let (kkm, events) = start("source", true);
+    kkm.start_session(SessionMode::FaceToFace);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut asked = None;
+    while Instant::now() < deadline && asked.is_none() {
+        if let Some(Event::Source(SourceEvent::OutputSwitchProposed { uid, .. })) =
+            events.recv_timeout(Duration::from_millis(100))
+        {
+            asked = Some(uid);
+        }
+    }
+    let uid = asked.expect("the proposal was forwarded");
+    kkm.decide_source(SourceDecision::Follow { uid: uid.clone() });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if DECISIONS
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .contains(&SourceDecision::Follow { uid: uid.clone() })
+        {
+            kkm.stop_session();
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the decision never reached the source");
 }
