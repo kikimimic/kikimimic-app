@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use kikimimic_asr_whisper::SileroVad;
 use kikimimic_core::asr::{Hypothesis, WindowTranscriber, Windowed};
 use kikimimic_core::domain::Spoken;
+use kikimimic_core::glossary::Keyword;
 
 /// Points at a specific libspeech build, for development and bisecting.
 const DYLIB_ENV: &str = "KKM_SPEECH_DYLIB";
@@ -26,6 +27,8 @@ const SAMPLE_RATE: c_int = 16_000;
 const SPEECH_OK: c_int = 0;
 /// `SPEECH_OPT_TIMESTAMPS` from speech.h.
 const OPT_TIMESTAMPS: c_int = 8;
+/// `SPEECH_OPT_KEYWORDS` from speech.h.
+const OPT_KEYWORDS: c_int = 60;
 
 type Status = c_int;
 type LoadFn = unsafe extern "C" fn(*const c_char, *const c_void, *mut *mut c_void) -> Status;
@@ -33,6 +36,7 @@ type FreeFn = unsafe extern "C" fn(*mut c_void);
 type RequestNewFn = unsafe extern "C" fn(*mut c_void, *mut *mut c_void) -> Status;
 type SetAudioFn = unsafe extern "C" fn(*mut c_void, *const f32, usize, c_int) -> Status;
 type SetBoolFn = unsafe extern "C" fn(*mut c_void, c_int, c_int) -> Status;
+type SetStringFn = unsafe extern "C" fn(*mut c_void, c_int, *const c_char) -> Status;
 type TranscribeFn = unsafe extern "C" fn(*mut c_void) -> Status;
 type ResultFn = unsafe extern "C" fn(*const c_void) -> *const c_void;
 type TextFn = unsafe extern "C" fn(*const c_void) -> *const c_char;
@@ -118,6 +122,7 @@ struct Api {
     request_free: FreeFn,
     set_audio: SetAudioFn,
     set_bool: SetBoolFn,
+    set_string: SetStringFn,
     transcribe: TranscribeFn,
     request_result: ResultFn,
     result_text: TextFn,
@@ -144,6 +149,8 @@ impl Api {
 /// points into it and the model must be freed before it unloads.
 pub struct SpeechModel {
     model: *mut c_void,
+    /// speech.h's `keywords` value, `None` when the glossary is empty.
+    keywords: Option<CString>,
     api: Api,
     _lib: libloading::Library,
 }
@@ -168,6 +175,7 @@ impl SpeechModel {
                 request_free: *lib.get(b"speech_request_free")?,
                 set_audio: *lib.get(b"speech_request_set_audio")?,
                 set_bool: *lib.get(b"speech_request_set_bool")?,
+                set_string: *lib.get(b"speech_request_set_string")?,
                 transcribe: *lib.get(b"speech_transcribe")?,
                 request_result: *lib.get(b"speech_request_result")?,
                 result_text: *lib.get(b"speech_result_text")?,
@@ -182,6 +190,7 @@ impl SpeechModel {
             }
             Ok(Self {
                 model,
+                keywords: None,
                 api,
                 _lib: lib,
             })
@@ -197,7 +206,7 @@ impl SpeechModel {
         if status != SPEECH_OK {
             return Err(api.error("create request", status));
         }
-        let out = unsafe { run(api, req, samples) };
+        let out = unsafe { run(api, req, samples, self.keywords.as_deref()) };
         unsafe { (api.request_free)(req) };
         out
     }
@@ -209,15 +218,22 @@ unsafe fn run(
     api: &Api,
     req: *mut c_void,
     samples: &[f32],
+    keywords: Option<&CStr>,
 ) -> Result<(String, Option<(u64, u64)>)> {
     let status = (api.set_audio)(req, samples.as_ptr(), samples.len(), SAMPLE_RATE);
     if status != SPEECH_OK {
         return Err(api.error("set audio", status));
     }
-    // Segment times are what lets the scheduler slide its window.
-    let status = (api.set_bool)(req, OPT_TIMESTAMPS, 1);
+    let status = match keywords {
+        // speech.cpp refuses timestamps with keywords (the keywords rewrite
+        // the text after decoding), so the window then has no segment times
+        // and the caller falls back to the whole window.
+        Some(k) => (api.set_string)(req, OPT_KEYWORDS, k.as_ptr()),
+        // Segment times are what lets the scheduler slide its window.
+        None => (api.set_bool)(req, OPT_TIMESTAMPS, 1),
+    };
     if status != SPEECH_OK {
-        return Err(api.error("enable timestamps", status));
+        return Err(api.error("set keywords or timestamps", status));
     }
     let status = (api.transcribe)(req);
     if status != SPEECH_OK {
@@ -266,6 +282,37 @@ impl WindowTranscriber for SpeechModel {
             lang: Some(LANG.to_string()),
         })
     }
+
+    fn set_keywords(&mut self, keywords: &[Keyword]) {
+        let text = keywords_text(keywords);
+        self.keywords = (!text.is_empty()).then(|| CString::new(text).expect("no NUL in keywords"));
+    }
+}
+
+/// speech.h's `keywords` format: one keyword a line, `written=reading,reading`.
+/// A keyword or reading holding a separator cannot be written in it, so it is
+/// left out rather than turned into a different keyword.
+fn keywords_text(keywords: &[Keyword]) -> String {
+    let clean =
+        |s: &str, extra: char| !s.trim().is_empty() && !s.contains(['\n', '\r', '=', '\0', extra]);
+    keywords
+        .iter()
+        .filter(|k| clean(&k.written, '\n'))
+        .map(|k| {
+            let readings: Vec<&str> = k
+                .readings
+                .iter()
+                .map(String::as_str)
+                .filter(|r| clean(r, ','))
+                .collect();
+            if readings.is_empty() {
+                k.written.clone()
+            } else {
+                format!("{}={}", k.written, readings.join(","))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The v3 engine: one Haas model and Silero VAD serving every lane.
@@ -334,6 +381,37 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), candidates.len(), "{candidates:?}");
+    }
+
+    #[test]
+    fn keywords_are_one_a_line_with_their_readings() {
+        let kw = |written: &str, readings: &[&str]| Keyword {
+            written: written.into(),
+            readings: readings.iter().map(|r| r.to_string()).collect(),
+        };
+        assert_eq!(
+            keywords_text(&[
+                kw("Gemini", &["ジェミナイ", "ジェミニ"]),
+                kw("AIモデル", &[]),
+            ]),
+            "Gemini=ジェミナイ,ジェミニ\nAIモデル"
+        );
+    }
+
+    #[test]
+    fn keywords_that_would_break_the_format_are_left_out() {
+        let kw = |written: &str, readings: &[&str]| Keyword {
+            written: written.into(),
+            readings: readings.iter().map(|r| r.to_string()).collect(),
+        };
+        assert_eq!(
+            keywords_text(&[
+                kw("a=b", &["x"]),
+                kw("two\nlines", &[]),
+                kw("Kikimimic", &["きき,耳", "きき耳ミック", "x=y"]),
+            ]),
+            "Kikimimic=きき耳ミック"
+        );
     }
 
     #[test]
