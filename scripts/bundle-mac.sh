@@ -6,6 +6,9 @@
 #     not be linked next to whisper's, ADR-153805), so cargo never builds it as a
 #     dependency of the app. It goes into Contents/Frameworks, where
 #     kikimimic-mt-llama looks for it.
+#     libspeech (speech.cpp, for the Haas ASR models) is isolated the same way; it
+#     is a pinned prebuilt release, downloaded once into target/ and checked
+#     against its sha256.
 #  2. The system-audio lane needs a real, signed bundle with
 #     NSAudioCaptureUsageDescription; launched any other way macOS withholds the
 #     permission by returning silence (docs/step0-tap-results.md).
@@ -30,6 +33,24 @@ dylib="libkikimimic_mt_llama_dylib.dylib"
 echo "==> translation backend (cdylib)"
 cargo build --release -p kikimimic-mt-llama-dylib
 
+echo "==> libspeech (speech.cpp)"
+speech_version="0.10.1"
+speech_sha256="ff24f6f58c9d2dedb01caa88ba043ae845c76eff228e4cbfae5de749174404c1"
+speech_zip="target/speech-${speech_version}-macos-arm64-metal.zip"
+speech_dir="target/speech-${speech_version}"
+speech_dylib="libspeech.4.dylib"
+mkdir -p target
+if ! echo "$speech_sha256  $speech_zip" | shasum -a 256 -c - >/dev/null 2>&1; then
+  curl -fL -o "$speech_zip" \
+    "https://github.com/nyosegawa/speech.cpp/releases/download/v${speech_version}/speech-${speech_version}-macos-arm64-metal.zip"
+  echo "$speech_sha256  $speech_zip" | shasum -a 256 -c -
+fi
+rm -rf "$speech_dir"
+mkdir -p "$speech_dir"
+unzip -q -o "$speech_zip" -d "$speech_dir"
+speech_lib="$(find "$speech_dir" -name "$speech_dylib" -type f | head -1)"
+[[ -n "$speech_lib" ]] || { echo "$speech_dylib is not in $speech_zip" >&2; exit 1; }
+
 echo "==> app"
 cargo build --release -p kikimimic
 
@@ -39,6 +60,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resourc
 cp app/assets/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 cp "target/release/$exe" "$app/Contents/MacOS/$exe"
 cp "target/release/$dylib" "$app/Contents/Frameworks/$dylib"
+cp "$speech_lib" "$app/Contents/Frameworks/$speech_dylib"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -77,6 +99,7 @@ if [[ "$identity" == "Developer ID Application"* ]]; then
   runtime=(--options runtime --timestamp --entitlements app/Kikimimic.entitlements)
 fi
 codesign --force --sign "$identity" "$app/Contents/Frameworks/$dylib"
+codesign --force --sign "$identity" "$app/Contents/Frameworks/$speech_dylib"
 codesign --force "${runtime[@]}" --sign "$identity" "$app"
 codesign --verify --strict "$app"
 
