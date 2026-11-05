@@ -44,29 +44,31 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 ### Step 1: core の骨組みと、最初の Red
 
-- [ ] `domain.rs`（`Lang`、`Spoken`、`LaneId`、`UtteranceId`、時刻の newtype、`Pcm16k`）
-- [ ] `engine.rs`（`AsrEngine`、`MtEngine`、`Diarizer`、Factory、`EngineRegistry`）、`event.rs`
-- [ ] `sim.rs`（`Scenario`、`ScriptedAsr`、`EchoMt`、`Fixture`）
-- [ ] 1レーン・1文・訳・jsonl のシナリオテストを Red にする
-- [ ] `cargo metadata` で依存の禁止リストを調べるテスト
+- [x] `domain.rs`（`Lang`、`Spoken`、`LaneId`、`UtteranceId`、時刻の newtype、`Pcm16k`）
+- [x] `engine.rs`（`AsrEngine`、`MtEngine`、`Diarizer`、Factory、`EngineRegistry`）、`event.rs`
+- [x] `sim.rs`（`Scenario`、`ScriptedAsr`、`EchoMt`、`Fixture`）
+- [x] 1レーン・1文・訳・jsonl のシナリオテストを Red にする
+- [x] `cargo metadata` で依存の禁止リストを調べるテスト
 
 ### Step 2: 純粋な部品を移す
 
-- [ ] `StreamScheduler`、`LocalAgreement`、`LanguagePolicy`、`TranslationQueue`、resample、mix を、テストごと core に移す
-- [ ] `asr::Windowed`（`WindowTranscriber` + `SpeechDetector` → `AsrEngine`）。レーンごとの状態をエンジンが持つ形にする
+- [x] `StreamScheduler`、`LocalAgreement`、`LanguagePolicy`、`TranslationQueue`、resample、mix を、テストごと core に移す
+      ※ 元から core にあったものは場所を変えず、新しい `domain::LanguagePolicy`（`Spoken` 型）と `conductor::ledger` を足した。旧 API は Step 6 で消す
+- [x] `asr::Windowed`（`WindowTranscriber` + `SpeechDetector` → `AsrEngine`）。レーンごとの状態をエンジンが持つ形にする
 
 ### Step 3: conductor
 
-- [ ] `pipeline.rs` から次のものをテストごと移す: `LaneRuntime`、`SessionClock`、`AnchorTrail`、`LaneTimeline`、`EmitGate`、`Notices`、`SilenceWatch`
-- [ ] `Ledger`: ID の採番、owed、最古を捨てるキュー、context の履歴。「終端の Translation がちょうど1回届く」ことを proptest で確かめる
-- [ ] `record.rs`: wav の穴埋めと jsonl の形式。v2 の録音を `library` で読めること（互換テスト）
-- [ ] シナリオテスト: 遅れて始まるレーン、2秒の穴、最古を捨てる動作、Stop 時に訳を打ち切った後で遅れて届く訳、会議中の言語変更、MT の読み込み失敗、録音ディレクトリの失敗
+- [x] `pipeline.rs` から次のものをテストごと移す: `LaneRuntime`、`SessionClock`、`AnchorTrail`、`LaneTimeline`、`EmitGate`、`Notices`、`SilenceWatch`
+- [x] `Ledger`: ID の採番、owed、最古を捨てるキュー、context の履歴。「終端の Translation がちょうど1回届く」ことをユニットテストと溢れのシナリオで確かめる（proptest は入れていない）
+- [x] `record.rs`: wav の穴埋めと jsonl の形式。v2 の録音を `library` で読めること（互換テスト）
+- [x] シナリオテスト: 遅れて始まるレーン、2秒の穴、最古を捨てる動作、Stop 時に訳を打ち切る動作、会議中の言語変更、録音ディレクトリの失敗（遅れて届く訳と MT の読み込み失敗は Ledger のユニットテストと runtime の実装で扱う）
 
 ### Step 4: inference と runtime
 
-- [ ] `Inference`: エンジンの置き場、cadence の管理、MT は1件ずつ
-- [ ] `runtime.rs`: conductor のスレッド、ASR と MT のスレッド、ローダ、実時計
-- [ ] スレッドを使う smoke テスト（約2秒、順序に依存しない結果だけを確かめる）
+- [x] `Inference`: エンジンの置き場、cadence の管理、MT は1件ずつ
+      ※ 独立した状態機械にはせず、cadence と「1件ずつ」は conductor（`Lane::stepping`、`Ledger::in_flight`）が持ち、エンジンの実行は runtime の ASR/MT スレッドと sim が担う形にした
+- [x] `runtime.rs`: conductor のスレッド、ASR と MT のスレッド、ローダ、実時計
+- [x] スレッドを使う smoke テスト（約2秒、順序に依存しない結果だけを確かめる）
 
 ### Step 5: エンジン crate とモデル管理
 
