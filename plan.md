@@ -103,7 +103,7 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 - [x] `bundle-mac.sh` に Developer ID での署名と notarization を足す（`KKM_SIGN_IDENTITY`、`KKM_NOTARY_PROFILE`、`--zip`）
 - [ ] Apple Developer Program に登録し、release workflow のシークレットを設定する（それまでは ad-hoc 署名で、Gatekeeper が警告する）
-- [ ] 正式なアプリアイコン（今の `app/assets/icon.png` は 32×32 の仮のもの）
+- [x] アプリアイコン（`app/assets/icon.svg` が原本。`AppIcon.icns` は rsvg-convert + iconutil で生成）
 - [x] リリースのワークフロー（`.github/workflows/release.yml`）と、`homebrew-tap` の cask を自動で更新する仕組み（`scripts/render-cask.sh`、`TAP_TOKEN` があるとき）
 - [ ] 最初のリリース（タグ `v0.1.0`）
 

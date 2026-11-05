@@ -33,7 +33,8 @@ cargo build --release -p kikimimic
 
 app="target/bundle/Kikimimic.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources"
+cp app/assets/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 cp "target/release/$exe" "$app/Contents/MacOS/$exe"
 cp "target/release/$dylib" "$app/Contents/Frameworks/$dylib"
 
@@ -46,6 +47,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Kikimimic</string>
   <key>CFBundleIdentifier</key><string>${bundle_id}</string>
   <key>CFBundleExecutable</key><string>${exe}</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>
