@@ -35,6 +35,8 @@ pub struct Fixture {
     start: Duration,
     len: Duration,
     level: f32,
+    /// (from, len) relative to `start`: the device delivers nothing.
+    gaps: Vec<(Duration, Duration)>,
 }
 
 impl Fixture {
@@ -43,6 +45,7 @@ impl Fixture {
             start: Duration::ZERO,
             len,
             level: 0.1,
+            gaps: Vec::new(),
         }
     }
 
@@ -51,6 +54,7 @@ impl Fixture {
             start: Duration::ZERO,
             len,
             level: 0.0,
+            gaps: Vec::new(),
         }
     }
 
@@ -60,8 +64,19 @@ impl Fixture {
         self
     }
 
+    /// The device delivers nothing for `len` from `from` (relative to the
+    /// lane's start): an output device with nothing playing runs no IO.
+    pub fn with_gap(mut self, from: Duration, len: Duration) -> Self {
+        self.gaps.push((from, len));
+        self
+    }
+
     fn plays_at(&self, t: Duration) -> bool {
-        t >= self.start && t < self.start + self.len
+        let in_gap = self.gaps.iter().any(|(from, len)| {
+            let from = self.start + *from;
+            t >= from && t < from + *len
+        });
+        t >= self.start && t < self.start + self.len && !in_gap
     }
 }
 
@@ -176,6 +191,7 @@ pub struct Scenario {
     glossary: Glossary,
     stop_at: Duration,
     changes: Vec<(Duration, LanguagePolicy)>,
+    record_base: Option<PathBuf>,
 }
 
 impl Default for Scenario {
@@ -199,6 +215,7 @@ impl Scenario {
             glossary: Glossary::default(),
             stop_at: Duration::from_secs(10),
             changes: Vec::new(),
+            record_base: None,
         }
     }
 
@@ -234,6 +251,12 @@ impl Scenario {
         self
     }
 
+    /// Record under `base` instead of a fresh scratch directory.
+    pub fn record_into(mut self, base: PathBuf) -> Self {
+        self.record_base = Some(base);
+        self
+    }
+
     pub fn glossary(mut self, glossary: Glossary) -> Self {
         self.glossary = glossary;
         self
@@ -245,7 +268,8 @@ impl Scenario {
     }
 
     pub fn run(mut self) -> Outcome {
-        let base = scratch_dir();
+        let base = self.record_base.clone().unwrap_or_else(scratch_dir);
+        let owns_dir = self.record_base.is_none();
         let mut conductor = Conductor::new(self.policy.clone(), self.glossary.clone());
         let mut writers: Vec<(CaptureWriter, Fixture)> = Vec::new();
         let mut streams = Vec::new();
@@ -333,6 +357,7 @@ impl Scenario {
         Outcome {
             events,
             dir: base.join("session"),
+            owns_dir,
         }
     }
 }
@@ -372,6 +397,7 @@ fn scratch_dir() -> PathBuf {
 pub struct Outcome {
     pub events: Vec<Event>,
     pub dir: PathBuf,
+    owns_dir: bool,
 }
 
 impl Outcome {
@@ -404,7 +430,7 @@ impl Outcome {
 
 impl Drop for Outcome {
     fn drop(&mut self) {
-        if let Some(base) = self.dir.parent() {
+        if let Some(base) = self.dir.parent().filter(|_| self.owns_dir) {
             let _ = std::fs::remove_dir_all(base);
         }
     }
