@@ -29,4 +29,3 @@ cclens.db
 
 # Local secrets (SONIOX_API_KEY)
 .env
-/app/target

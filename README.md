@@ -11,49 +11,58 @@ Nothing leaves your computer except the one-time model downloads.
 The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the shared
 `mimi` (耳, "ear") stands for the two lanes.
 
-> **Status: rebuilding as v3.** The project is moving to the `kikimimic` org as
-> an OSS monorepo: a headless `kikimimic-core` library and a GPUI desktop app.
-> See [plan.md](plan.md) and [docs/design/core.md](docs/design/core.md). The
-> rest of this README describes the v2 app that runs today.
+> **Status: v3, early.** macOS on Apple Silicon. Windows and Linux are planned;
+> the core already builds and tests on all three. See [plan.md](plan.md).
 
 ## Features
 
 - Word-level live transcription with local Whisper (whisper.cpp, Metal)
 - Sentence-level live translation with a local LLM (llama.cpp, GGUF)
 - Separate lanes for your microphone and system audio, recorded on one timeline
-- Post-recording speaker diarization (optional, Apple Silicon + `uv`)
-- macOS (Apple Silicon) today; Windows and Linux are planned
+- A glossary that fixes misrecognitions and keeps names intact in translations
+- Face-to-face mode: microphone only, nothing recorded
 
 ## Models
 
-Models are never bundled. Download them from the app's **Models** screen, or put
-them in `models/` (git-ignored):
+Models are never bundled. Download them from the app's **Models** tab; each one
+shows its license first.
 
-| File | Use | License |
+| Model | Use | License |
 |---|---|---|
-| `ggml-large-v3-turbo-q8_0.bin` | Whisper ASR (q8_0 is faster than q5_0 on Metal) | MIT |
-| `ggml-silero-v5.1.2.bin` | Silero VAD (GGML build from whisper.cpp) | MIT |
-| `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | Translation (optional; transcription works without it) | Apache-2.0 |
+| Whisper large-v3-turbo (q8_0) + Silero VAD | Recognition (default) | MIT |
+| Qwen3 4B Instruct 2507 (Q4_K_M) | Translation (default) | Apache-2.0 |
+| PLaMo 3 Translate 2B (Q4_K_M) | Translation (optional) | PLaMo Community License — free for personal and non-commercial use; commercial use needs registration with PFN |
+
+The list lives in [models/catalog.toml](models/catalog.toml).
 
 ## Building (macOS)
 
-You need Xcode command line tools and either Nix (`nix develop`) or Rust, CMake,
-Bun and `uv` on your `PATH`.
+Rust is pinned by `rust-toolchain.toml` (rustup picks it up). `nix develop`
+provides everything else; without Nix you need the Xcode command line tools
+and CMake.
 
-The translation backend is built as a separate cdylib, because llama.cpp's ggml
-cannot share one binary with whisper.cpp's
+The translation backend is a separate cdylib, because llama.cpp's ggml cannot
+share one binary with whisper.cpp's
 ([ADR-153805](docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md)):
 
 ```sh
 cargo build --release -p kikimimic-mt-llama-dylib
+cargo run -p kikimimic                # development
+./scripts/bundle-mac.sh --open        # Kikimimic.app
 ```
 
-Then:
+The system-audio lane only works from the signed `.app`; launched any other way,
+macOS silently returns silence.
 
-- Development: `bun run tauri dev`
-- Real use: `./scripts/build-app.sh --open` builds and launches `Kikimimic.app`.
-  The system-audio lane only works from a signed `.app`; launched any other way,
-  macOS silently returns silence.
+Development settings:
+
+| Variable | Effect |
+|---|---|
+| `KKM_MODELS_DIR` | Also look for model files here (e.g. an existing `models/`) |
+| `KKM_RECORD_DIR` | Where recordings go (default `~/Music/kikimimic`) |
+| `KKM_TRANSLATE_DYLIB` | Use this build of the translation backend |
+| `KKM_LLM_GPU_LAYERS` | Layers of the translation model on the GPU (`0` for CPU) |
+| `KKM_LANG_PIN_THRESHOLD`, `KKM_VAD_*` | Whisper language detection and VAD tuning |
 
 ## Recordings
 
@@ -72,12 +81,13 @@ them to utterances by `id`. `startMs`/`endMs` are positions in the recording.
 
 ## Documentation
 
-- Design decisions: [docs/ADR/](docs/ADR/)
-- v3 core design: [docs/design/core.md](docs/design/core.md)
-- Measurements: [docs/step0-results.md](docs/step0-results.md), [docs/nemotron-spike-results.md](docs/nemotron-spike-results.md)
+- Core design: [docs/design/core.md](docs/design/core.md)
+- Decisions: [docs/ADR/](docs/ADR/)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 Most design documents are written in Japanese.
 
 ## License
 
-MIT. Model licenses are listed above and shown before download.
+MIT (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). Model licenses are listed
+above and shown before download.

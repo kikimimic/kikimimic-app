@@ -20,19 +20,19 @@ cd "$repo"
 bundle_id="io.github.kikimimic.app"
 min_macos="14.2"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)"
-exe="kikimimic-app"
+exe="kikimimic"
 dylib="libkikimimic_mt_llama_dylib.dylib"
 
 echo "==> translation backend (cdylib)"
 cargo build --release -p kikimimic-mt-llama-dylib
 
 echo "==> app"
-cargo build --release --manifest-path app/Cargo.toml
+cargo build --release -p kikimimic
 
 app="target/bundle/Kikimimic.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
-cp "app/target/release/$exe" "$app/Contents/MacOS/$exe"
+cp "target/release/$exe" "$app/Contents/MacOS/$exe"
 cp "target/release/$dylib" "$app/Contents/Frameworks/$dylib"
 
 cat > "$app/Contents/Info.plist" <<PLIST

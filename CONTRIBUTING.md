@@ -22,8 +22,8 @@ check the plan before starting larger work so we do not collide.
 | `crates/kikimimic-core` | Headless core: pipeline, state, events, engine traits |
 | `crates/kikimimic-asr-*` | Speech recognition engines |
 | `crates/kikimimic-mt-*` | Translation engines and prompt formats |
-| `crates/kikimimic-capture` | OS audio capture backends (planned) |
-| `app/` | GPUI desktop app (planned; the v2 Tauri app lives in `src-tauri/`) |
+| `crates/kikimimic-capture` | OS audio capture backends |
+| `app/` | GPUI desktop app |
 | `docs/ADR/` | Architecture decisions |
 
 ## Adding an engine or OS backend (v3)
@@ -35,6 +35,7 @@ The target shape, from [docs/design/core.md](docs/design/core.md):
    ASR), `MtEngine`, `Diarizer`, or `CaptureBackend`.
 3. Run the matching contract suite from `kikimimic_core::contract` against it.
 4. Register it in `app/src/engines.rs` and add its models to `models/catalog.toml`.
+   The app's test checks every catalog entry against the registry.
 
 You should not need to change `kikimimic-core` to add one. If you do, open an
 issue first: the boundary may be wrong.

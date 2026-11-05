@@ -1,8 +1,8 @@
 [package]
-name = "kikimimic-app"
+name = "kikimimic"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license.workspace = true
 publish = false
 
 # GPUI comes from Zed's monorepo at a pinned release tag: crates.io stopped
@@ -28,12 +28,3 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0"
 [dev-dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["test-support"] }
 
-# Standalone until plan.md Step 6 folds it back into the root workspace.
-[workspace]
-
-# GPUI is a git dependency, so Zed's own [patch.crates-io] does not apply to it.
-# Mirror the entries GPUI's dependency tree needs, at the revisions the pinned
-# Zed tag uses (root Cargo.toml of zed-industries/zed at that tag).
-[patch.crates-io]
-async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
-calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
