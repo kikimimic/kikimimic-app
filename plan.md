@@ -89,8 +89,8 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 ### Step 7: 話者分離
 
-- [ ] `kikimimic-diarize-nemotron`（`Diarizer`）と、conductor の `PostProcessing`
-- [ ] 当面は任意の追加機能にする。`uv` が見つからなければ、話者分離のボタンに導入方法を表示する
+- [x] `kikimimic-diarize-nemotron`（`Diarizer`）と `Kikimimic::diarize`（専用スレッドで話者分離し、セッションの ASR/MT スレッドを借りて分け直す）。実物の Nemotron で 6.7 分の録音から2人・177区間を検出
+- [x] 当面は任意の追加機能にする。`uv` が見つからなければ、話者分離のボタンに導入方法を表示する（`KKM_UV_BIN`、PATH、Homebrew などの場所を探す）
 - [ ] spike S5 の結果を見て、1.0 までにプロセス内で動く実装に置き換えるかを決める
 
 ### Step 8: PLaMo 3 Translate を選べるようにする
@@ -101,8 +101,11 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 ### Step 9: 配布
 
-- [ ] `bundle-mac.sh` に Developer ID での署名と notarization を足す（Apple Developer Program が必要）
-- [ ] リリースのワークフローと、`homebrew-tap` の cask を自動で更新する仕組み
+- [x] `bundle-mac.sh` に Developer ID での署名と notarization を足す（`KKM_SIGN_IDENTITY`、`KKM_NOTARY_PROFILE`、`--zip`）
+- [ ] Apple Developer Program に登録し、release workflow のシークレットを設定する（それまでは ad-hoc 署名で、Gatekeeper が警告する）
+- [ ] 正式なアプリアイコン（今の `app/assets/icon.png` は 32×32 の仮のもの）
+- [x] リリースのワークフロー（`.github/workflows/release.yml`）と、`homebrew-tap` の cask を自動で更新する仕組み（`scripts/render-cask.sh`、`TAP_TOKEN` があるとき）
+- [ ] 最初のリリース（タグ `v0.1.0`）
 
 ### 後で
 

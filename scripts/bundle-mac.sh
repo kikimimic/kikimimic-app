@@ -10,8 +10,10 @@
 #     NSAudioCaptureUsageDescription; launched any other way macOS withholds the
 #     permission by returning silence (docs/step0-tap-results.md).
 #
-# Usage: scripts/bundle-mac.sh [--open]
-# Signs ad hoc unless KKM_SIGN_IDENTITY names a Developer ID identity.
+# Usage: scripts/bundle-mac.sh [--open | --zip]
+# Signs ad hoc unless KKM_SIGN_IDENTITY names a Developer ID identity. With
+# --zip and KKM_NOTARY_PROFILE (a `notarytool store-credentials` profile),
+# the zip is notarized and the app stapled.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -60,11 +62,30 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> sign"
-codesign --force --sign "${KKM_SIGN_IDENTITY:--}" "$app/Contents/Frameworks/$dylib"
-codesign --force --sign "${KKM_SIGN_IDENTITY:--}" "$app"
+identity="${KKM_SIGN_IDENTITY:--}"
+# A Developer ID signature needs the hardened runtime for notarization.
+runtime=()
+[[ "$identity" != "-" ]] && runtime=(--options runtime --timestamp)
+codesign --force "${runtime[@]}" --sign "$identity" "$app/Contents/Frameworks/$dylib"
+codesign --force "${runtime[@]}" --sign "$identity" "$app"
 codesign --verify --strict "$app"
 
 echo "==> built $app"
-if [[ "${1-}" == "--open" ]]; then
-  open "$app"
-fi
+case "${1-}" in
+  --open)
+    open "$app"
+    ;;
+  --zip)
+    zip="target/bundle/Kikimimic-${version}-macos-arm64.zip"
+    rm -f "$zip"
+    ditto -c -k --keepParent "$app" "$zip"
+    if [[ -n "${KKM_NOTARY_PROFILE:-}" ]]; then
+      echo "==> notarize"
+      xcrun notarytool submit "$zip" --keychain-profile "$KKM_NOTARY_PROFILE" --wait
+      xcrun stapler staple "$app"
+      rm -f "$zip"
+      ditto -c -k --keepParent "$app" "$zip"
+    fi
+    echo "==> $zip"
+    ;;
+esac

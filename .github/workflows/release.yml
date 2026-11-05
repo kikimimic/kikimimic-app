@@ -1,0 +1,77 @@
+name: Release
+
+# Push a tag like v0.1.0 to build Kikimimic.app, attach it to a GitHub
+# release, and (with TAP_TOKEN) update the cask in kikimimic/homebrew-tap.
+#
+# Signing and notarization run only when these secrets exist (Apple
+# Developer Program): MACOS_CERTIFICATE (base64 .p12), MACOS_CERTIFICATE_PASSWORD,
+# MACOS_SIGN_IDENTITY, NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD.
+# Without them the app is signed ad hoc and Gatekeeper will warn.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    env:
+      HAS_SIGNING: ${{ secrets.MACOS_CERTIFICATE != '' }}
+      HAS_TAP: ${{ secrets.TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Import the signing certificate
+        if: env.HAS_SIGNING == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          xcrun notarytool store-credentials kikimimic --apple-id "$NOTARY_APPLE_ID" \
+            --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --keychain "$keychain"
+          echo "KKM_NOTARY_PROFILE=kikimimic" >> "$GITHUB_ENV"
+
+      - name: Build Kikimimic.app
+        env:
+          KKM_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: ./scripts/bundle-mac.sh --zip
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip=$(ls target/bundle/Kikimimic-*-macos-arm64.zip)
+          gh release create "$GITHUB_REF_NAME" "$zip" --title "Kikimimic ${GITHUB_REF_NAME#v}" --generate-notes
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - name: Update the Homebrew cask
+        if: env.HAS_TAP == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sha=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/kikimimic/homebrew-tap.git" tap
+          ./scripts/render-cask.sh "$version" "$sha" > tap/Casks/kikimimic.rb
+          cd tap
+          git config user.name "kikimimic-release"
+          git config user.email "kikimimic-release@users.noreply.github.com"
+          git add Casks/kikimimic.rb
+          git commit -m "kikimimic ${version}"
+          git push
