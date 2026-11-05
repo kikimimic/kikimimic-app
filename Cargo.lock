@@ -2097,7 +2097,11 @@ name = "kikimimic-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hound",
+ "rtrb",
  "rubato",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
