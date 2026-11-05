@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use kikimimic_core::capture::{channel, CaptureStream, Format, SourceDecision, SourceEvent};
 use kikimimic_core::catalog::Catalog;
 use kikimimic_core::domain::{HostNanos, LaneId, LaneRole};
-use kikimimic_core::engine::{AsrEngine, EngineRegistry, LoadRequest};
+use kikimimic_core::engine::{AsrEngine, Diarizer, EngineRegistry, LoadRequest};
 use kikimimic_core::engine::{MtEngine, MtRequest};
-use kikimimic_core::event::{Event, Phase, TranslationOutcome};
+use kikimimic_core::event::{Event, Phase, PostProcessState, TranslationOutcome};
 use kikimimic_core::sim::ScriptedAsr;
 use kikimimic_core::{CaptureBackend, CaptureHandle, Config, Events, Kikimimic, SessionMode};
 
@@ -118,7 +118,28 @@ fn engines() -> EngineRegistry {
     r
 }
 
+/// Says two speakers took turns in the first two seconds.
+struct TwoSpeakers;
+impl Diarizer for TwoSpeakers {
+    fn diarize(&mut self, _mix: &std::path::Path, rttm: &std::path::Path) -> anyhow::Result<()> {
+        std::fs::write(
+            rttm,
+            "SPEAKER mix 1 0.000 1.000 <NA> <NA> speaker_0 <NA> <NA>\n\
+             SPEAKER mix 1 1.000 1.000 <NA> <NA> speaker_1 <NA> <NA>\n",
+        )?;
+        Ok(())
+    }
+}
+
 fn start(label: &str, install: bool) -> (Kikimimic, Events) {
+    start_with(label, install, None)
+}
+
+fn start_with(
+    label: &str,
+    install: bool,
+    diarizer: Option<Box<dyn Diarizer>>,
+) -> (Kikimimic, Events) {
     let data =
         std::env::temp_dir().join(format!("kikimimic-runtime-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
@@ -136,6 +157,7 @@ fn start(label: &str, install: bool) -> (Kikimimic, Events) {
         recordings_dir: data.join("recordings"),
         capture: Box::new(Tone),
         session_name: Box::new(|| "unused".into()),
+        diarizer,
     })
 }
 
@@ -217,4 +239,65 @@ fn a_source_question_reaches_the_ui_and_its_answer_reaches_the_source() {
         std::thread::sleep(Duration::from_millis(20));
     }
     panic!("the decision never reached the source");
+}
+
+/// A finished recording on disk: two seconds of silence in each wav and one
+/// line that both speakers share.
+fn recording(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 48_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    for name in ["mic", "mix"] {
+        let mut w = hound::WavWriter::create(dir.join(format!("{name}.wav")), spec).unwrap();
+        for _ in 0..96_000 {
+            w.write_sample(0i16).unwrap();
+        }
+        w.finalize().unwrap();
+    }
+    std::fs::write(
+        dir.join("transcript.jsonl"),
+        r#"{"type":"utterance","id":1,"lane":"mic","startMs":0,"endMs":2000,"lang":"en","text":"hello"}"#,
+    )
+    .unwrap();
+}
+
+fn post_process_outcome(events: &Events) -> PostProcessState {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if let Some(Event::PostProcess { state, .. }) =
+            events.recv_timeout(Duration::from_millis(100))
+        {
+            if state != PostProcessState::Running {
+                return state;
+            }
+        }
+    }
+    panic!("post-processing never finished");
+}
+
+#[test]
+fn a_finished_recording_gets_speaker_labels() {
+    let (kkm, events) = start_with("diarize", true, Some(Box::new(TwoSpeakers)));
+    let dir = std::env::temp_dir().join(format!("kikimimic-diarize-rec-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    recording(&dir);
+    kkm.diarize(dir.clone());
+    assert_eq!(post_process_outcome(&events), PostProcessState::Done);
+    assert!(dir.join("postprocess/transcript.jsonl").exists());
+    assert!(dir.join("postprocess/nemotron.rttm").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn without_a_diarizer_labelling_is_refused_with_a_reason() {
+    let (kkm, events) = start("no-diarizer", true);
+    kkm.diarize(std::env::temp_dir());
+    assert!(matches!(
+        post_process_outcome(&events),
+        PostProcessState::Failed { .. }
+    ));
 }

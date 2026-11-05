@@ -9,6 +9,13 @@ pub fn data_dir() -> PathBuf {
         .join("io.github.kikimimic.app")
 }
 
+/// Scratch space (the diarization script).
+pub fn cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("io.github.kikimimic.app")
+}
+
 /// Recordings: `~/Music/kikimimic`, as v2 wrote them, or `KKM_RECORD_DIR`.
 pub fn recordings_dir() -> PathBuf {
     std::env::var_os("KKM_RECORD_DIR")

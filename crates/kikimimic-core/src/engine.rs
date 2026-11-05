@@ -22,6 +22,30 @@ pub trait AsrEngine: Send {
     fn step(&mut self, lane: LaneId, langs: &Spoken) -> anyhow::Result<Option<AsrStep>>;
     /// Commit everything pending and forget the lane.
     fn finish(&mut self, lane: LaneId, langs: &Spoken) -> anyhow::Result<Vec<AsrStep>>;
+
+    /// Recognize one short clip on its own (re-recognizing a diarized turn).
+    /// The default runs it through a scratch lane.
+    fn transcribe_clip(
+        &mut self,
+        audio: &Pcm16k,
+        langs: &Spoken,
+    ) -> anyhow::Result<Vec<Recognized>> {
+        let lane = LaneId(u8::MAX);
+        self.open_lane(lane);
+        self.push(lane, audio);
+        Ok(self
+            .finish(lane, langs)?
+            .into_iter()
+            .filter_map(|s| s.utterance)
+            .collect())
+    }
+}
+
+/// Finds who spoke when in a finished recording.
+pub trait Diarizer: Send {
+    /// Write the speaker turns of `mix_wav` to `rttm` (NIST RTTM, speakers
+    /// named `speaker_<n>`).
+    fn diarize(&mut self, mix_wav: &std::path::Path, rttm: &std::path::Path) -> anyhow::Result<()>;
 }
 
 /// One step's outcome for one lane.

@@ -10,6 +10,7 @@
 //! long translation never stalls capture draining or recording.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -17,12 +18,16 @@ use std::time::{Duration, Instant};
 
 use crate::capture::CaptureStream;
 use crate::catalog::Catalog;
+use crate::conductor::ledger::MtJob;
 use crate::conductor::{
     AsrIn, AsrOut, Command, Conductor, Input, MtOut, Output, RecordingTarget, StartSession, POLL,
 };
 use crate::domain::LaneRole;
-use crate::engine::{AsrEngine, EngineRegistry, LoadRequest, MtEngine, MtRequest};
-use crate::event::{Event, Phase, StatusView};
+use crate::domain::{Lang, Pcm16k, Spoken};
+use crate::engine::{
+    AsrEngine, Diarizer, EngineRegistry, LoadRequest, MtEngine, MtRequest, Recognized,
+};
+use crate::event::{Event, Phase, PostProcessState, StatusView};
 use crate::settings::Settings;
 use crate::store::ModelStore;
 
@@ -53,6 +58,8 @@ pub struct Config {
     /// The recording directory name for a session starting now. The app
     /// supplies it so it follows the user's local clock.
     pub session_name: Box<dyn Fn() -> String + Send>,
+    /// Speaker labelling for finished recordings, where the platform has one.
+    pub diarizer: Option<Box<dyn Diarizer>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +74,7 @@ enum Msg {
     Input(Input),
     Start(SessionMode),
     Decide(crate::capture::SourceDecision),
+    Diarize(PathBuf),
 }
 
 /// The app's handle. Cheap to clone; every call is a message to the
@@ -126,6 +134,9 @@ impl Kikimimic {
             asr: asr_tx,
             mt: mt_tx,
             epoch: Instant::now(),
+            diarizer: config.diarizer.map(|d| Arc::new(Mutex::new(d))),
+            postprocessing: Arc::new(AtomicBool::new(false)),
+            languages: Arc::clone(&settings),
         };
         thread::Builder::new()
             .name("kikimimic-conductor".into())
@@ -156,6 +167,13 @@ impl Kikimimic {
     /// Answer a `Event::Source` question (follow the new output device?).
     pub fn decide_source(&self, decision: crate::capture::SourceDecision) {
         let _ = self.tx.send(Msg::Decide(decision));
+    }
+
+    /// Label who spoke in a finished recording, then re-recognize the lines
+    /// two speakers share. Refused while a session runs. Progress arrives as
+    /// `Event::PostProcess`.
+    pub fn diarize(&self, recording: PathBuf) {
+        let _ = self.tx.send(Msg::Diarize(recording));
     }
 
     pub fn settings(&self) -> Settings {
@@ -243,8 +261,12 @@ struct Shell {
     session_name: Box<dyn Fn() -> String + Send>,
     events: Sender<Event>,
     asr: Sender<AsrWork>,
-    mt: Sender<crate::conductor::ledger::MtJob>,
+    mt: Sender<MtWork>,
     epoch: Instant,
+    diarizer: Option<Arc<Mutex<Box<dyn Diarizer>>>>,
+    /// A recording is being diarized; sessions wait for it.
+    postprocessing: Arc<AtomicBool>,
+    languages: Arc<Mutex<Settings>>,
 }
 
 impl Shell {
@@ -272,6 +294,7 @@ impl Shell {
                         self.handle(Input::Command(Command::Start(start)));
                     }
                 }
+                Ok(Msg::Diarize(dir)) => self.diarize(dir),
                 Ok(Msg::Decide(decision)) => {
                     for handle in &mut self.handles {
                         handle.decide(decision.clone());
@@ -293,6 +316,9 @@ impl Shell {
     fn open_session(&mut self, mode: SessionMode) -> Option<StartSession> {
         if !self.conductor.is_idle() {
             return None;
+        }
+        if self.postprocessing.load(Ordering::SeqCst) {
+            return self.refuse("speaker labelling is still running".into());
         }
         let (reply_tx, reply_rx) = mpsc::channel();
         let _ = self.asr.send(AsrWork::Ensure(reply_tx));
@@ -340,6 +366,50 @@ impl Shell {
         })
     }
 
+    fn diarize(&mut self, dir: PathBuf) {
+        let failed = |message: &str| Event::PostProcess {
+            recording: dir.clone(),
+            state: PostProcessState::Failed {
+                message: message.into(),
+            },
+        };
+        let Some(diarizer) = self.diarizer.clone() else {
+            let _ = self.events.send(failed(
+                "speaker labelling is not available on this platform",
+            ));
+            return;
+        };
+        if !self.conductor.is_idle() || self.postprocessing.swap(true, Ordering::SeqCst) {
+            let _ = self
+                .events
+                .send(failed("stop the session (or the running labelling) first"));
+            return;
+        }
+        let (asr, mt, events) = (self.asr.clone(), self.mt.clone(), self.events.clone());
+        let busy = Arc::clone(&self.postprocessing);
+        let spoken = self.languages.lock().unwrap().languages.spoken.clone();
+        thread::Builder::new()
+            .name("kikimimic-postprocess".into())
+            .spawn(move || {
+                let _ = events.send(Event::PostProcess {
+                    recording: dir.clone(),
+                    state: PostProcessState::Running,
+                });
+                let state = match postprocess(&dir, &diarizer, &asr, &mt, &spoken) {
+                    Ok(()) => PostProcessState::Done,
+                    Err(e) => PostProcessState::Failed {
+                        message: format!("{e:#}"),
+                    },
+                };
+                busy.store(false, Ordering::SeqCst);
+                let _ = events.send(Event::PostProcess {
+                    recording: dir,
+                    state,
+                });
+            })
+            .expect("spawn the post-processing thread");
+    }
+
     fn refuse(&mut self, message: String) -> Option<StartSession> {
         self.handles.clear();
         let _ = self.events.send(Event::Status(StatusView {
@@ -359,7 +429,7 @@ impl Shell {
                 let _ = self.asr.send(AsrWork::Run(work));
             }
             Output::Mt(job) => {
-                let _ = self.mt.send(job);
+                let _ = self.mt.send(MtWork::Job(job));
             }
             Output::ReleaseCapture => self.handles.clear(),
         }
@@ -370,6 +440,8 @@ enum AsrWork {
     Run(AsrIn),
     /// Make sure the model the settings name is loaded; reply with its cadence.
     Ensure(Sender<Result<Duration, String>>),
+    /// Recognize one clip outside any session (post-processing).
+    Clip(Pcm16k, Spoken, Sender<Result<Vec<Recognized>, String>>),
 }
 
 fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
@@ -381,19 +453,15 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
             for work in work_rx {
                 let work = match work {
                     AsrWork::Ensure(reply) => {
-                        let wanted = models.wanted_asr();
-                        if loaded.as_ref().is_none_or(|(id, _)| *id != wanted) {
-                            loaded = None;
-                            match models.load_asr(&wanted) {
-                                Ok(engine) => loaded = Some((wanted, engine)),
-                                Err(e) => {
-                                    let _ = reply.send(Err(e));
-                                    continue;
-                                }
-                            }
-                        }
-                        let cadence = loaded.as_ref().map(|(_, e)| e.cadence()).unwrap_or(POLL);
-                        let _ = reply.send(Ok(cadence));
+                        let _ = reply.send(ensure(&models, &mut loaded).map(|e| e.cadence()));
+                        continue;
+                    }
+                    AsrWork::Clip(audio, langs, reply) => {
+                        let result = ensure(&models, &mut loaded).and_then(|e| {
+                            e.transcribe_clip(&audio, &langs)
+                                .map_err(|e| format!("{e:#}"))
+                        });
+                        let _ = reply.send(result);
                         continue;
                     }
                     AsrWork::Run(work) => work,
@@ -428,13 +496,58 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
     work_tx
 }
 
-fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<crate::conductor::ledger::MtJob> {
-    let (job_tx, job_rx) = mpsc::channel::<crate::conductor::ledger::MtJob>();
+/// The recognizer the settings name, loading or replacing it first.
+fn ensure<'a>(
+    models: &Models,
+    loaded: &'a mut Option<(String, Box<dyn AsrEngine>)>,
+) -> Result<&'a mut Box<dyn AsrEngine>, String> {
+    let wanted = models.wanted_asr();
+    if loaded.as_ref().is_none_or(|(id, _)| *id != wanted) {
+        *loaded = None;
+        *loaded = Some((wanted.clone(), models.load_asr(&wanted)?));
+    }
+    Ok(&mut loaded.as_mut().expect("loaded above").1)
+}
+
+enum MtWork {
+    Job(MtJob),
+    /// Translate outside the session's queue (post-processing).
+    Direct {
+        text: String,
+        source: Option<Lang>,
+        target: Lang,
+        reply: Sender<Result<String, String>>,
+    },
+}
+
+fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<MtWork> {
+    let (job_tx, job_rx) = mpsc::channel::<MtWork>();
     thread::Builder::new()
         .name("kikimimic-mt".into())
         .spawn(move || {
             let mut loaded: Option<(String, Box<dyn MtEngine>)> = None;
-            for job in job_rx {
+            for work in job_rx {
+                let job = match work {
+                    MtWork::Job(job) => job,
+                    MtWork::Direct {
+                        text,
+                        source,
+                        target,
+                        reply,
+                    } => {
+                        let job = MtJob {
+                            id: crate::domain::UtteranceId(0),
+                            lane: crate::domain::LaneLabel::new(crate::domain::LaneRole::Mic, 1),
+                            text,
+                            source,
+                            target,
+                            context: Vec::new(),
+                            terms: Vec::new(),
+                        };
+                        let _ = reply.send(translate(&models, &mut loaded, &job));
+                        continue;
+                    }
+                };
                 let result = translate(&models, &mut loaded, &job);
                 if tx
                     .send(Msg::Input(Input::Mt(MtOut { id: job.id, result })))
@@ -453,7 +566,7 @@ fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<crate::conductor::ledger:
 fn translate(
     models: &Models,
     loaded: &mut Option<(String, Box<dyn MtEngine>)>,
-    job: &crate::conductor::ledger::MtJob,
+    job: &MtJob,
 ) -> Result<String, String> {
     let wanted = models
         .wanted_mt()
@@ -476,4 +589,68 @@ fn translate(
             terms: &job.terms,
         })
         .map_err(|e| format!("{e:#}"))
+}
+
+/// Diarize `dir`, then split shared lines with the session engines. Runs on
+/// its own thread; the engine threads serve it between nothing else, since
+/// sessions are refused meanwhile.
+fn postprocess(
+    dir: &std::path::Path,
+    diarizer: &Mutex<Box<dyn Diarizer>>,
+    asr: &Sender<AsrWork>,
+    mt: &Sender<MtWork>,
+    spoken: &Spoken,
+) -> anyhow::Result<()> {
+    let mix = dir.join("mix.wav");
+    anyhow::ensure!(mix.exists(), "{} has no mix.wav", dir.display());
+    let out = dir.join("postprocess");
+    anyhow::ensure!(
+        !out.is_symlink(),
+        "postprocess directory cannot be a symlink"
+    );
+    std::fs::create_dir_all(&out)?;
+    let written = out.join(".nemotron.rttm.tmp");
+    diarizer.lock().unwrap().diarize(&mix, &written)?;
+    crate::postprocess::install_rttm(dir, &written)?;
+    crate::postprocess::split(
+        dir,
+        |samples, lang| {
+            let langs = match lang.and_then(|l| Lang::parse(l).ok()) {
+                Some(l) => Spoken::One(l),
+                None => spoken.clone(),
+            };
+            let (reply, answer) = mpsc::channel();
+            asr.send(AsrWork::Clip(
+                Pcm16k::assume_16k(samples.to_vec()),
+                langs,
+                reply,
+            ))
+            .map_err(|_| anyhow::anyhow!("the speech engine stopped"))?;
+            let heard = answer.recv()?.map_err(anyhow::Error::msg)?;
+            Ok(crate::asr::Hypothesis {
+                text: heard
+                    .iter()
+                    .map(|u| u.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                start_ms: 0,
+                end_ms: 0,
+                lang: heard
+                    .iter()
+                    .find_map(|u| u.lang.as_ref())
+                    .map(|l| l.as_str().to_string()),
+            })
+        },
+        |text, source, target| {
+            let (reply, answer) = mpsc::channel();
+            mt.send(MtWork::Direct {
+                text: text.to_string(),
+                source: source.and_then(|l| Lang::parse(l).ok()),
+                target: Lang::parse(target).ok()?,
+                reply,
+            })
+            .ok()?;
+            answer.recv().ok()?.ok()
+        },
+    )
 }

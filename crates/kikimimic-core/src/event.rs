@@ -26,6 +26,21 @@ pub enum Event {
     /// A capture source needs a decision or reports one (output-device
     /// switching). Answer with `Kikimimic::decide_source`.
     Source(crate::capture::SourceEvent),
+    /// Speaker labelling of a finished recording (`Kikimimic::diarize`).
+    PostProcess {
+        recording: PathBuf,
+        state: PostProcessState,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PostProcessState {
+    Running,
+    /// `postprocess/transcript.jsonl` is written; reading the recording shows it.
+    Done,
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

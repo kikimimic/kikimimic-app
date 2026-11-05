@@ -64,6 +64,22 @@ fn speaker_for(start_ms: u64, end_ms: u64, turns: &[Turn]) -> Option<String> {
 /// untouched live one.
 pub const TRANSCRIPT: &str = "postprocess/transcript.jsonl";
 
+/// Where the diarizer's speaker turns live.
+pub const RTTM: &str = "postprocess/nemotron.rttm";
+
+/// Validate a freshly written RTTM and move it into place. Lines split by a
+/// previous diarization no longer match this one, so their transcript goes.
+pub fn install_rttm(dir: &Path, written: &Path) -> anyhow::Result<()> {
+    if let Err(e) = read_rttm(written) {
+        let _ = std::fs::remove_file(written);
+        return Err(e);
+    }
+    let _ = std::fs::remove_file(dir.join(TRANSCRIPT));
+    let target = dir.join(RTTM);
+    std::fs::rename(written, &target)
+        .with_context(|| format!("save diarization {}", target.display()))
+}
+
 /// A turn shorter than this is not given its own line: whisper hears too
 /// little of it to be trusted, and it is usually a backchannel ("うん").
 const MIN_PIECE_MS: u64 = 500;
@@ -155,7 +171,7 @@ pub fn split(
     mut transcribe: impl FnMut(&[f32], Option<&str>) -> anyhow::Result<crate::asr::Hypothesis>,
     mut translate: impl FnMut(&str, Option<&str>, &str) -> Option<String>,
 ) -> anyhow::Result<()> {
-    let mut turns = read_rttm(&dir.join("postprocess/nemotron.rttm"))?;
+    let mut turns = read_rttm(&dir.join(RTTM))?;
     turns.sort_by(|a, b| a.start_ms.total_cmp(&b.start_ms));
     let mut out = Vec::new();
     for line in crate::library::transcript_lines(&dir.join("transcript.jsonl")) {
@@ -230,7 +246,7 @@ fn write_transcript(dir: &Path, lines: &[crate::library::Line]) -> anyhow::Resul
 }
 
 pub fn label_lines(dir: &Path, lines: &mut [crate::library::Line]) {
-    let Ok(turns) = read_rttm(&dir.join("postprocess/nemotron.rttm")) else {
+    let Ok(turns) = read_rttm(&dir.join(RTTM)) else {
         return;
     };
     for line in lines {

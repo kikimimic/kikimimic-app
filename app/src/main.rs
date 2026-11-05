@@ -39,6 +39,14 @@ fn forward(events: Events, state: Entity<AppState>, cx: &mut App) {
     .detach();
 }
 
+/// Nemotron runs on Apple Silicon only.
+fn diarizer() -> Option<Box<dyn kikimimic_core::engine::Diarizer>> {
+    (cfg!(all(target_os = "macos", target_arch = "aarch64"))).then(|| {
+        Box::new(kikimimic_diarize_nemotron::Nemotron::new(paths::cache_dir()))
+            as Box<dyn kikimimic_core::engine::Diarizer>
+    })
+}
+
 fn main() {
     let (kkm, events) = Kikimimic::start(Config {
         data_dir: paths::data_dir(),
@@ -48,6 +56,7 @@ fn main() {
         recordings_dir: paths::recordings_dir(),
         capture: kikimimic_capture::platform_backend(),
         session_name: Box::new(paths::session_name),
+        diarizer: diarizer(),
     });
     gpui_platform::application().run(move |cx: &mut App| {
         text_input::bind_keys(cx);

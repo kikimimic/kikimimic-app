@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use kikimimic_core::capture::SourceEvent;
 use kikimimic_core::domain::{LaneLabel, Lang, RecordingMs, UtteranceId};
-use kikimimic_core::event::{Event, Notice, Phase, TranslationOutcome};
+use kikimimic_core::event::{Event, Notice, Phase, PostProcessState, TranslationOutcome};
 
 /// Lines kept on screen; older ones scroll away (they are on disk).
 const MAX_LINES: usize = 1000;
@@ -48,6 +48,8 @@ pub struct AppState {
     pub question: Option<SourceQuestion>,
     /// The last thing a source reported (switched, or failed to).
     pub source_message: Option<String>,
+    /// Speaker labelling of a recording, and how far it got.
+    pub post_process: Option<(PathBuf, PostProcessState)>,
 }
 
 impl Default for AppState {
@@ -59,6 +61,7 @@ impl Default for AppState {
             recording_dir: None,
             question: None,
             source_message: None,
+            post_process: None,
         }
     }
 }
@@ -127,6 +130,7 @@ impl AppState {
                 self.question = None;
                 self.source_message = Some(reason);
             }
+            Event::PostProcess { recording, state } => self.post_process = Some((recording, state)),
         }
     }
 
@@ -270,6 +274,21 @@ mod tests {
         assert!(s.is_listening());
         assert_eq!(s.notices.len(), 1);
         assert_eq!(s.recording_dir, Some(PathBuf::from("/tmp/x")));
+    }
+
+    #[test]
+    fn speaker_labelling_progress_is_kept_per_recording() {
+        let mut s = AppState::default();
+        let rec = PathBuf::from("/rec/1");
+        s.apply(Event::PostProcess {
+            recording: rec.clone(),
+            state: PostProcessState::Running,
+        });
+        s.apply(Event::PostProcess {
+            recording: rec.clone(),
+            state: PostProcessState::Done,
+        });
+        assert_eq!(s.post_process, Some((rec, PostProcessState::Done)));
     }
 
     #[test]

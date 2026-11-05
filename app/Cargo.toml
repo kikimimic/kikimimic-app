@@ -16,6 +16,7 @@ futures = "0.3"
 kikimimic-asr-whisper = { path = "../crates/kikimimic-asr-whisper" }
 kikimimic-capture = { path = "../crates/kikimimic-capture" }
 kikimimic-core = { path = "../crates/kikimimic-core" }
+kikimimic-diarize-nemotron = { path = "../crates/kikimimic-diarize-nemotron" }
 kikimimic-mt-llama = { path = "../crates/kikimimic-mt-llama" }
 ureq = "3"
 unicode-segmentation = "1"

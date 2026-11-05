@@ -9,7 +9,7 @@ use gpui::{
 use kikimimic_core::capture::SourceDecision;
 use kikimimic_core::catalog::ModelKind;
 use kikimimic_core::domain::{Lang, LanguagePolicy, Spoken};
-use kikimimic_core::event::{Notice, Phase};
+use kikimimic_core::event::{Notice, Phase, PostProcessState};
 use kikimimic_core::glossary::GlossaryEntry;
 use kikimimic_core::library::{self, Recording};
 use kikimimic_core::store::ModelState;
@@ -35,7 +35,7 @@ pub struct MainWindow {
     scroll: ScrollHandle,
     downloads: Downloads,
     recordings: Vec<Recording>,
-    open_recording: Option<library::Session>,
+    open_recording: Option<(std::path::PathBuf, library::Session)>,
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
@@ -96,8 +96,16 @@ fn notice_text(n: &Notice) -> String {
 
 impl MainWindow {
     pub fn new(kkm: Kikimimic, state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&state, |this: &mut Self, _, cx| {
+        cx.observe(&state, |this: &mut Self, state, cx| {
             this.scroll.scroll_to_bottom();
+            // Labelling finished for the open recording: show the split lines.
+            let done = matches!(
+                (&state.read(cx).post_process, &this.open_recording),
+                (Some((dir, PostProcessState::Done)), Some((open, _))) if dir == open
+            );
+            if done && let Some((dir, _)) = this.open_recording.take() {
+                this.open_recording = library::read(&dir).ok().map(|s| (dir, s));
+            }
             cx.notify();
         })
         .detach();
@@ -300,8 +308,13 @@ impl MainWindow {
             .p_4()
             .size_full()
             .overflow_y_scroll();
-        if let Some(session) = &self.open_recording {
-            col = col.child(
+        if let Some((dir, session)) = &self.open_recording {
+            let labelling = match &self.state.read(cx).post_process {
+                Some((d, state)) if d == dir => Some(state.clone()),
+                _ => None,
+            };
+            let dir = dir.clone();
+            let mut bar = div().flex().gap_2().items_center().child(
                 button("back", "← All recordings", false).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.open_recording = None;
@@ -309,6 +322,23 @@ impl MainWindow {
                     },
                 )),
             );
+            bar =
+                match labelling {
+                    Some(PostProcessState::Running) => bar.child(
+                        div()
+                            .text_color(gray())
+                            .child("Identifying speakers… (the first run downloads the model)"),
+                    ),
+                    other => {
+                        if let Some(PostProcessState::Failed { message }) = other {
+                            bar = bar.child(div().text_color(rgb(0xcf222e)).child(message));
+                        }
+                        bar.child(button("diarize", "Identify speakers", false).on_click(
+                            cx.listener(move |this, _, _, _| this.kkm.diarize(dir.clone())),
+                        ))
+                    }
+                };
+            col = col.child(bar);
             for line in &session.lines {
                 let mut row = div().flex().flex_col().py_1().child(
                     div()
@@ -352,8 +382,9 @@ impl MainWindow {
                         r.snippet
                     )))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        match library::read(std::path::Path::new(&dir)) {
-                            Ok(s) => this.open_recording = Some(s),
+                        let path = std::path::PathBuf::from(&dir);
+                        match library::read(&path) {
+                            Ok(s) => this.open_recording = Some((path, s)),
                             Err(e) => this.error = Some(format!("{e:#}")),
                         }
                         cx.notify();
