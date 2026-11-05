@@ -31,7 +31,12 @@ pub trait CaptureBackend: Send {
 }
 
 /// Keeps a source running; dropping it stops the device.
-pub trait CaptureHandle: Send {}
+pub trait CaptureHandle: Send {
+    fn poll_event(&mut self) -> Option<crate::capture::SourceEvent> {
+        None
+    }
+    fn decide(&mut self, _decision: crate::capture::SourceDecision) {}
+}
 
 pub type AsrLoader = Box<dyn FnOnce() -> anyhow::Result<Box<dyn AsrEngine>> + Send>;
 pub type MtLoader = Box<dyn FnOnce() -> anyhow::Result<Box<dyn MtEngine>> + Send>;

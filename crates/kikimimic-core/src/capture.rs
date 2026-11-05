@@ -67,31 +67,88 @@ impl CaptureWriter {
     /// Interleaved samples whose first frame was captured at `captured_at`.
     /// What does not fit is counted as dropped, never blocked on.
     pub fn push(&mut self, interleaved: &[f32], captured_at: HostNanos) {
+        self.push_iter(interleaved.iter().copied(), captured_at);
+    }
+
+    /// As [`push`](Self::push), converting on the fly so a callback in
+    /// another sample format needs no buffer.
+    pub fn push_iter(
+        &mut self,
+        samples: impl ExactSizeIterator<Item = f32>,
+        captured_at: HostNanos,
+    ) {
         let channels = self.channels as usize;
-        let room = self.audio.slots() / channels * channels;
-        let take = interleaved.len().min(room) / channels * channels;
+        let len = samples.len();
+        // Whole frames only: a partial frame would misalign every later one.
+        let take = len.min(self.audio.slots()) / channels * channels;
         if take > 0 {
+            // Stamped before the write, so the reader always finds an anchor
+            // at or before the audio it is looking at.
             let _ = self.times.push(Anchor {
                 frame: self.frames,
                 nanos: captured_at,
             });
             if let Ok(chunk) = self.audio.write_chunk_uninit(take) {
-                chunk.fill_from_iter(interleaved[..take].iter().copied());
+                chunk.fill_from_iter(samples.take(take));
             }
             self.frames += (take / channels) as u64;
         }
-        if take < interleaved.len() {
-            self.dropped
-                .fetch_add(interleaved.len() - take, Ordering::Relaxed);
+        if take < len {
+            self.dropped.fetch_add(len - take, Ordering::Relaxed);
         }
     }
 
     /// The device failed (unplugged). The session stops listening to it.
     pub fn fail(&self, reason: &str) {
-        if let Ok(mut slot) = self.fault.try_lock() {
+        self.fault().fail(reason);
+    }
+
+    /// For reporting a failure from a thread other than the audio callback.
+    pub fn fault(&self) -> Fault {
+        Fault(Arc::clone(&self.fault))
+    }
+}
+
+/// Reports a capture failure from any thread. The first failure wins.
+#[derive(Clone)]
+pub struct Fault(Arc<Mutex<Option<String>>>);
+
+impl Fault {
+    pub fn fail(&self, reason: &str) {
+        if let Ok(mut slot) = self.0.try_lock() {
             slot.get_or_insert_with(|| reason.to_string());
         }
     }
+}
+
+/// Something a running source wants the user to decide or know.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceEvent {
+    /// The OS default output changed; follow it? `uid` names the proposal.
+    OutputSwitchProposed {
+        capturing: String,
+        detected: String,
+        uid: String,
+    },
+    /// The proposal was withdrawn (the user went back, or it went stale).
+    OutputSwitchWithdrawn,
+    OutputSwitched {
+        name: String,
+    },
+    OutputSwitchFailed {
+        reason: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceDecision {
+    /// Follow the proposal named by `uid`; a stale uid is ignored.
+    Follow {
+        uid: String,
+    },
+    Stay {
+        uid: String,
+    },
 }
 
 /// The core's read side. Consumed only by the conductor.

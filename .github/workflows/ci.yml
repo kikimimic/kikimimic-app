@@ -50,8 +50,8 @@ jobs:
       # (ADR-153805) and a built frontend directory.
       - run: cargo build --release -p kikimimic-mt-llama-dylib
       - run: mkdir -p build
-      - run: cargo clippy -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic-mt-llama-dylib -p kikimimic --all-targets
-      - run: cargo test -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic
+      - run: cargo clippy -p kikimimic-asr-whisper -p kikimimic-capture -p kikimimic-mt-llama -p kikimimic-mt-llama-dylib -p kikimimic --all-targets
+      - run: cargo test -p kikimimic-asr-whisper -p kikimimic-capture -p kikimimic-mt-llama -p kikimimic
 
   # The GPUI app is its own workspace until the v2 Tauri app is gone
   # (plan.md Step 6).

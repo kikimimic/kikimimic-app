@@ -8,6 +8,7 @@ members = [
     "crates/kikimimic-mt-llama",
     "crates/kikimimic-mt-llama-dylib",
     "crates/kikimimic-asr-whisper",
+    "crates/kikimimic-capture",
     "crates/spike",
     "src-tauri",
 ]
