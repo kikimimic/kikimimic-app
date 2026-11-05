@@ -133,11 +133,12 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 **作業**
 
-- [ ] `calendar.rs` の純粋な部分（`parse_events`、`join_url`、`due`）をテストから
-- [ ] `google.rs`: PKCE、認可 URL、リダイレクトの解析、スコープの確認（純粋、テストあり）と、ループバックの受け口、トークンの交換と更新、キーチェーン
-- [ ] `Calendar` の Entity と取得・確認のループ、設定タブのサインイン
-- [ ] `cutin.rs` のカード
-- [ ] README（英語と日本語）の「通信しない」の記述と開発用の環境変数、`bundle-mac.sh` への `KKM_GOOGLE_CLIENT_*` の受け渡し
+- [x] `calendar.rs` の純粋な部分（`parse_events`、`join_url`、`due`）をテストから
+- [x] `google.rs`: PKCE、認可 URL、リダイレクトの解析、スコープの確認（純粋、テストあり）と、ループバックの受け口、トークンの交換と更新、キーチェーン
+- [x] `Calendar` の Entity と取得・確認のループ、設定タブのサインイン
+- [x] `cutin.rs` のカード
+- [x] README（英語と日本語）の「通信しない」の記述と開発用の環境変数、`bundle-mac.sh` への `KKM_GOOGLE_CLIENT_*` の受け渡し
+- [ ] 実際の OAuth クライアントでの確認: サインイン、トークンの更新、`invalid_grant` でのサインインし直し、キーチェーンへの保存
 
 ### 後で
 
