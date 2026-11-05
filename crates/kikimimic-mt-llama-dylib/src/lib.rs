@@ -7,8 +7,8 @@
 //! Windows) keep it separate from the host's — so the app remains a
 //! single process (ADR-153800).
 //!
-//! C ABI: `kkm_translate_init` once, `kkm_generate` per rendered prompt (or
-//! v2's `kkm_translate` per sentence)
+//! C ABI: `kkm_translate_init` once, `kkm_generate` per prompt the host
+//! rendered (kikimimic-mt-llama's `PromptFormat`)
 //! (blocking; call from a queue thread), `kkm_translate_free` per result,
 //! `kkm_translate_shutdown` at the end. Every export catches panics:
 //! unwinding out of `extern "C"` aborts the whole process — host app,
@@ -22,7 +22,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use anyhow::{Context, Result};
 use llama_cpp_2::llama_backend::LlamaBackend;
-use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel};
+use llama_cpp_2::model::LlamaModel;
 
 /// Room for prompt + output; sentences are short, so this is generous.
 const N_CTX: u32 = 2048;
@@ -42,8 +42,6 @@ pub struct Translator {
     /// Created once and reused: per-sentence context creation reallocates
     /// the KV cache every call. Cleared between sentences instead.
     ctx: ManuallyDrop<llama_cpp_2::context::LlamaContext<'static>>,
-    /// The model's own chat template; None falls back to ChatML.
-    template: Option<LlamaChatTemplate>,
 }
 
 impl Drop for Translator {
@@ -99,49 +97,10 @@ fn init(path: &str, n_gpu_layers: u32) -> Result<Translator> {
             return Err(e).context("create llm context");
         }
     };
-    let template = model.chat_template(None).ok();
-    if template.is_none() {
-        eprintln!("kikimimic-mt-llama init: model has no chat template, using ChatML");
-    }
     Ok(Translator {
         backend,
         model,
         ctx: ManuallyDrop::new(ctx),
-        template,
-    })
-}
-
-/// Translate one sentence. Returns a heap CString (free with
-/// [`kkm_translate_free`]) or null on error.
-///
-/// # Safety
-/// `handle` must come from [`kkm_translate_init`]; the strings must be
-/// valid NUL-terminated UTF-8. Not thread-safe per handle: serialize calls.
-#[no_mangle]
-pub unsafe extern "C" fn kkm_translate(
-    handle: *mut Translator,
-    sentence: *const c_char,
-    source_lang: *const c_char,
-    target_lang: *const c_char,
-) -> *mut c_char {
-    let Some(translator) = handle.as_mut() else {
-        return std::ptr::null_mut();
-    };
-    let sentence = CStr::from_ptr(sentence).to_string_lossy();
-    let source = CStr::from_ptr(source_lang).to_string_lossy();
-    let target = CStr::from_ptr(target_lang).to_string_lossy();
-    catch_unwind(AssertUnwindSafe(|| {
-        match translate(translator, &sentence, &source, &target) {
-            Ok(out) => CString::new(out).map_or(std::ptr::null_mut(), CString::into_raw),
-            Err(e) => {
-                eprintln!("kikimimic-mt-llama: {e:#}");
-                std::ptr::null_mut()
-            }
-        }
-    }))
-    .unwrap_or_else(|_| {
-        eprintln!("kikimimic-mt-llama: panicked");
-        std::ptr::null_mut()
     })
 }
 
@@ -150,7 +109,8 @@ pub unsafe extern "C" fn kkm_translate(
 /// [`kkm_translate_free`]) or null on error.
 ///
 /// # Safety
-/// As [`kkm_translate`].
+/// `handle` must come from [`kkm_translate_init`]; `prompt` must be a valid
+/// NUL-terminated UTF-8 string. Not thread-safe per handle: serialize calls.
 #[no_mangle]
 pub unsafe extern "C" fn kkm_generate(
     handle: *mut Translator,
@@ -176,7 +136,7 @@ pub unsafe extern "C" fn kkm_generate(
 }
 
 /// # Safety
-/// `s` must be a pointer returned by [`kkm_translate`] or [`kkm_generate`] (or null).
+/// `s` must be a pointer returned by [`kkm_generate`] (or null).
 #[no_mangle]
 pub unsafe extern "C" fn kkm_translate_free(s: *mut c_char) {
     if !s.is_null() {
@@ -190,56 +150,16 @@ pub unsafe extern "C" fn kkm_translate_free(s: *mut c_char) {
 #[no_mangle]
 pub unsafe extern "C" fn kkm_translate_shutdown(handle: *mut Translator) {
     if !handle.is_null() {
-        let _ = catch_unwind(|| drop(Box::from_raw(handle)));
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(Box::from_raw(handle))));
     }
-}
-
-/// Render the interpreter prompt with the model's own chat template so a
-/// swapped-in GGUF (Step 2's model picker) keeps working; ChatML only as
-/// a last resort.
-fn build_prompt(t: &Translator, sentence: &str, source: &str, target: &str) -> Result<String> {
-    // An empty source means detection was unconfident about this window
-    // (kikimimic_core::language). Naming a language we are not sure of is worse
-    // than naming none: told the wrong one, the model "corrects" the
-    // sentence into it instead of translating what was actually said.
-    let from = if source.is_empty() {
-        String::new()
-    } else {
-        format!("from {source} ")
-    };
-    let system = format!(
-        "You are a professional simultaneous interpreter. \
-         Translate the user's sentence {from}to {target}. \
-         If it is already in {target}, repeat it unchanged. \
-         Output only the translation, nothing else."
-    );
-    if let Some(template) = &t.template {
-        let messages = vec![
-            LlamaChatMessage::new("system".into(), system.clone())?,
-            LlamaChatMessage::new("user".into(), sentence.into())?,
-        ];
-        match t.model.apply_chat_template(template, &messages, true) {
-            Ok(prompt) => return Ok(prompt),
-            Err(e) => {
-                eprintln!("kikimimic-mt-llama: chat template failed ({e}), falling back to ChatML")
-            }
-        }
-    }
-    Ok(format!(
-        "<|im_start|>system\n{system}<|im_end|>\n\
-         <|im_start|>user\n{sentence}<|im_end|>\n<|im_start|>assistant\n"
-    ))
-}
-
-fn translate(t: &mut Translator, sentence: &str, source: &str, target: &str) -> Result<String> {
-    let prompt = build_prompt(t, sentence, source, target)?;
-    generate(t, &prompt, sentence)
 }
 
 /// Greedy generation from a fully rendered prompt. `label` only names the
 /// request in the truncation log.
 fn generate(t: &mut Translator, prompt: &str, label: &str) -> Result<String> {
-    let tokens = t.model.str_to_token(prompt, AddBos::Never)?;
+    // The prompt carries its own BOS and special tokens (ChatML, PFML3).
+    let vocab = t.model.vocab();
+    let tokens = vocab.tokenize(prompt.as_bytes(), false, true);
     anyhow::ensure!(!tokens.is_empty(), "prompt tokenized to nothing");
     anyhow::ensure!(
         tokens.len() + MAX_OUTPUT_TOKENS as usize <= N_CTX as usize,
@@ -266,7 +186,7 @@ fn generate(t: &mut Translator, prompt: &str, label: &str) -> Result<String> {
     loop {
         let token = sampler.sample(ctx, batch.n_tokens() - 1);
         sampler.accept(token);
-        if t.model.is_eog_token(token) {
+        if vocab.is_eog(token) {
             break;
         }
         if generated >= MAX_OUTPUT_TOKENS {
@@ -276,7 +196,7 @@ fn generate(t: &mut Translator, prompt: &str, label: &str) -> Result<String> {
             );
             break;
         }
-        out_bytes.extend(t.model.token_to_piece_bytes(token, 64, false, None)?);
+        out_bytes.extend(vocab.token_to_piece(token, false, None));
         generated += 1;
         batch.clear();
         batch.add(token, pos, &[0], true)?;

@@ -8,7 +8,30 @@ use std::time::Duration;
 use crate::domain::{LaneId, Lang, Pcm16k, Spoken, StreamMs};
 use crate::engine::{self, AsrStep, Recognized};
 use crate::scheduler::{StepOutput, StreamScheduler};
-use crate::{Hypothesis, SpeechDetector};
+
+/// A transcription hypothesis for a window of audio.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hypothesis {
+    pub text: String,
+    /// Milliseconds from the start of the *transcribed window* (the samples
+    /// passed to [`WindowTranscriber::transcribe`]) — not from capture start. The
+    /// scheduler's slide carry-over arithmetic depends on this; a backend
+    /// returning stream-absolute times would silently break it.
+    pub start_ms: u64,
+    /// End of the last decoded segment, window-relative like `start_ms`.
+    pub end_ms: u64,
+    /// Language the engine detected (or was told) for this window.
+    pub lang: Option<String>,
+}
+
+/// Voice activity detection over one window of 16 kHz mono audio.
+///
+/// Implementations run on the ASR thread.
+pub trait SpeechDetector: Send {
+    /// Speech regions as (start, end) sample offsets within `samples`,
+    /// in ascending order.
+    fn speech_segments(&mut self, samples: &[f32]) -> anyhow::Result<Vec<(usize, usize)>>;
+}
 
 /// Transcribes one window of 16 kHz mono audio. Times in the returned
 /// [`Hypothesis`] are relative to the window.
@@ -48,7 +71,7 @@ struct Bound<'a, T> {
     allowed: &'a Spoken,
 }
 
-impl<T: WindowTranscriber> crate::AsrEngine for Bound<'_, T> {
+impl<T: WindowTranscriber> crate::scheduler::Decode for Bound<'_, T> {
     fn transcribe(&mut self, samples: &[f32], lang: Option<&str>) -> anyhow::Result<Hypothesis> {
         self.transcriber.transcribe(samples, lang, self.allowed)
     }

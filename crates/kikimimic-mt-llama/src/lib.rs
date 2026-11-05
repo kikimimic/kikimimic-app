@@ -14,7 +14,6 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use kikimimic_core::Translator;
 
 mod prompt;
 pub use prompt::PromptFormat;
@@ -27,8 +26,6 @@ const DYLIB_ENV: &str = "KKM_TRANSLATE_DYLIB";
 const DEFAULT_GPU_LAYERS: u32 = 1_000_000;
 
 type InitFn = unsafe extern "C" fn(*const c_char, u32) -> *mut c_void;
-type TranslateFn =
-    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char) -> *mut c_char;
 type GenerateFn = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char;
 type FreeFn = unsafe extern "C" fn(*mut c_char);
 type ShutdownFn = unsafe extern "C" fn(*mut c_void);
@@ -110,9 +107,7 @@ pub fn find_dylib() -> Result<PathBuf> {
 
 /// The exported functions, copied out of the loaded library.
 struct Api {
-    translate: TranslateFn,
-    /// Absent from v2-era builds of the backend.
-    generate: Option<GenerateFn>,
+    generate: GenerateFn,
     free: FreeFn,
     shutdown: ShutdownFn,
 }
@@ -145,8 +140,10 @@ impl GgmlTranslator {
                 .with_context(|| format!("dlopen {}", dylib.display()))?;
             let init: InitFn = *lib.get(b"kkm_translate_init")?;
             let api = Api {
-                translate: *lib.get(b"kkm_translate")?,
-                generate: lib.get::<GenerateFn>(b"kkm_generate").ok().map(|f| *f),
+                generate: *lib.get(b"kkm_generate").context(
+                    "the translation backend predates kkm_generate; rebuild it with \
+                     `cargo build --release -p kikimimic-mt-llama-dylib`",
+                )?,
                 free: *lib.get(b"kkm_translate_free")?,
                 shutdown: *lib.get(b"kkm_translate_shutdown")?,
             };
@@ -168,13 +165,9 @@ impl GgmlTranslator {
 impl GgmlTranslator {
     /// Greedy generation from a rendered prompt.
     pub fn generate(&mut self, prompt: &str) -> Result<String> {
-        let generate = self.api.generate.context(
-            "the translation backend predates kkm_generate; rebuild it with \
-             `cargo build --release -p kikimimic-mt-llama-dylib`",
-        )?;
         let prompt = CString::new(prompt).context("prompt contains a NUL byte")?;
         unsafe {
-            let out = generate(self.handle, prompt.as_ptr());
+            let out = (self.api.generate)(self.handle, prompt.as_ptr());
             anyhow::ensure!(!out.is_null(), "generation failed (see stderr)");
             let text = CStr::from_ptr(out).to_string_lossy().into_owned();
             (self.api.free)(out);
@@ -239,31 +232,6 @@ impl Drop for GgmlTranslator {
     }
 }
 
-impl Translator for GgmlTranslator {
-    fn translate(
-        &mut self,
-        sentence: &str,
-        source_lang: &str,
-        target_lang: &str,
-    ) -> Result<String> {
-        let sentence = CString::new(sentence).context("sentence contains a NUL byte")?;
-        let source = CString::new(source_lang)?;
-        let target = CString::new(target_lang)?;
-        unsafe {
-            let out = (self.api.translate)(
-                self.handle,
-                sentence.as_ptr(),
-                source.as_ptr(),
-                target.as_ptr(),
-            );
-            anyhow::ensure!(!out.is_null(), "translation failed (see stderr)");
-            let text = CStr::from_ptr(out).to_string_lossy().into_owned();
-            (self.api.free)(out);
-            Ok(text)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,46 +281,6 @@ mod tests {
             ))),
             "{candidates:?}"
         );
-    }
-
-    /// The one test that actually crosses the FFI boundary: loads the real
-    /// backend and the real model and translates. Minutes long and gigabytes
-    /// of RAM, so it is opt-in:
-    ///
-    /// ```sh
-    /// cargo build --release -p kikimimic-mt-llama-dylib
-    /// KKM_TRANSLATE_DYLIB="$PWD/target/release/libkikimimic_mt_llama_dylib.dylib" \
-    ///   cargo test -p kikimimic-mt-llama -- --ignored --nocapture
-    /// ```
-    ///
-    /// The override is needed because a test binary lives in
-    /// `target/debug/deps`, which no search path is meant to cover. It must
-    /// be absolute: the test runs with the crate directory as its cwd.
-    #[test]
-    #[ignore = "loads a multi-gigabyte model"]
-    fn translates_with_and_without_a_stated_source_language() {
-        let models = kikimimic_core::models::ModelManager::new(vec![PathBuf::from(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../models"
-        ))]);
-        let model = models
-            .resolve(kikimimic_core::models::Model::Translator)
-            .expect("translation model");
-        let mut translator = GgmlTranslator::load(&model).expect("load backend");
-
-        let told = translator
-            .translate("The meeting starts at three.", "English", "Japanese")
-            .expect("translate with a source language");
-        println!("told:  {told}");
-        assert!(!told.is_empty());
-
-        // An unconfident detection leaves the source empty: the backend must
-        // translate anyway rather than prompting "from  to Japanese".
-        let untold = translator
-            .translate("The meeting starts at three.", "", "Japanese")
-            .expect("translate without a source language");
-        println!("untold: {untold}");
-        assert!(!untold.is_empty());
     }
 
     #[test]

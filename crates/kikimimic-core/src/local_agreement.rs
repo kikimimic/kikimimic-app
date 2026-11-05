@@ -27,10 +27,6 @@ pub struct LocalAgreement {
 }
 
 impl LocalAgreement {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Start a fresh agreement context (call when the audio window slides).
     pub fn reset(&mut self) {
         self.prev = None;
@@ -87,7 +83,7 @@ mod tests {
 
     #[test]
     fn first_hypothesis_commits_nothing() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         let out = la.feed("こんにちは");
         assert_eq!(out.committed_delta, "");
         assert_eq!(out.volatile, "こんにちは");
@@ -95,7 +91,7 @@ mod tests {
 
     #[test]
     fn reset_starts_a_fresh_agreement_context() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         la.feed("こんにちは");
         la.feed("こんにちは"); // fully committed
         la.reset();
@@ -106,7 +102,7 @@ mod tests {
 
     #[test]
     fn shorter_hypothesis_than_committed_yields_nothing() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         la.feed("こんにちは、世界");
         la.feed("こんにちは、世界"); // fully committed
         let out = la.feed("こんに"); // hypothesis shrank below the committed point
@@ -116,7 +112,7 @@ mod tests {
 
     #[test]
     fn flush_commits_and_returns_the_pending_volatile_tail() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         la.feed("こんにちは、せ");
         la.feed("こんにちは、世界"); // committed: こんにちは、 volatile: 世界
         assert_eq!(la.flush(), "世界");
@@ -126,7 +122,7 @@ mod tests {
 
     #[test]
     fn hypothesis_diverging_before_committed_point_suppresses_volatile() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         la.feed("こんにちは、せ");
         la.feed("こんにちは、世界"); // committed: こんにちは、
                                      // Longer hypothesis that contradicts the committed prefix: splicing
@@ -138,13 +134,13 @@ mod tests {
 
     #[test]
     fn flush_before_any_hypothesis_returns_nothing() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         assert_eq!(la.flush(), "");
     }
 
     #[test]
     fn agreeing_prefix_of_two_hypotheses_is_committed() {
-        let mut la = LocalAgreement::new();
+        let mut la = LocalAgreement::default();
         la.feed("こんにちは、せ");
         let out = la.feed("こんにちは、世界");
         assert_eq!(out.committed_delta, "こんにちは、");

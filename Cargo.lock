@@ -1254,15 +1254,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "encoding_rs"
-version = "0.8.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2801,11 +2792,9 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "llama-cpp-2"
-version = "0.1.154"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4397360a0bd81be29929a55ad2f49eba27a744a6578f3271894d6f41d86bd15b"
+version = "0.1.162"
+source = "git+https://github.com/utilityai/llama-cpp-rs?rev=0364f5da1c6a6ee37f507031f116ce4a09b28594#0364f5da1c6a6ee37f507031f116ce4a09b28594"
 dependencies = [
- "encoding_rs",
  "enumflags2",
  "llama-cpp-sys-2",
  "thiserror 2.0.20",
@@ -2815,11 +2804,9 @@ dependencies = [
 
 [[package]]
 name = "llama-cpp-sys-2"
-version = "0.1.154"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13a9ea2ce0cdc20bcb1870534022e340b391663f8fe09133951e2fe37fbc29cf"
+version = "0.1.162"
+source = "git+https://github.com/utilityai/llama-cpp-rs?rev=0364f5da1c6a6ee37f507031f116ce4a09b28594#0364f5da1c6a6ee37f507031f116ce4a09b28594"
 dependencies = [
- "bindgen",
  "cc",
  "cmake",
  "find_cuda_helper",

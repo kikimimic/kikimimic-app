@@ -152,7 +152,7 @@ fn crop(path: &Path, start_ms: u64, end_ms: u64) -> anyhow::Result<Vec<f32>> {
 /// line was, so a session that was not translating stays untranslated.
 pub fn split(
     dir: &Path,
-    mut transcribe: impl FnMut(&[f32], Option<&str>) -> anyhow::Result<crate::Hypothesis>,
+    mut transcribe: impl FnMut(&[f32], Option<&str>) -> anyhow::Result<crate::asr::Hypothesis>,
     mut translate: impl FnMut(&str, Option<&str>, &str) -> Option<String>,
 ) -> anyhow::Result<()> {
     let mut turns = read_rttm(&dir.join("postprocess/nemotron.rttm"))?;

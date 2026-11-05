@@ -1,4 +1,6 @@
-//! [`AsrEngine`] implementation over whisper.cpp (via whisper-rs, Metal).
+//! Whisper (whisper.cpp via whisper-rs, Metal) as a v3 speech engine: a
+//! [`WindowTranscriber`] plus Silero VAD, run per lane by the core's
+//! `asr::Windowed`.
 //!
 //! FFI boundary: correctness is verified by running the app and the spike
 //! measurements (docs/step0-results.md), not unit tests.
@@ -7,7 +9,8 @@
 //! symbol collision is resolved (docs/step0-results.md).
 
 use anyhow::{Context, Result};
-use kikimimic_core::{AsrEngine, Hypothesis, SpeechDetector};
+use kikimimic_core::asr::{Hypothesis, SpeechDetector, WindowTranscriber};
+use kikimimic_core::domain::Spoken;
 
 /// Segments whisper itself considers likely non-speech (coughs, breaths,
 /// keyboard noise) hallucinate text; drop them above this probability.
@@ -134,8 +137,8 @@ fn to_lang_ids(langs: &[String]) -> Result<Vec<i32>> {
         .collect()
 }
 
-impl AsrEngine for WhisperEngine {
-    fn transcribe(&mut self, samples: &[f32], lang: Option<&str>) -> Result<Hypothesis> {
+impl WhisperEngine {
+    fn decode(&mut self, samples: &[f32], lang: Option<&str>) -> Result<Hypothesis> {
         let state = &mut self.state;
 
         // Restricted detection: pick the most probable of the allowed
@@ -193,19 +196,19 @@ impl AsrEngine for WhisperEngine {
     }
 }
 
-impl kikimimic_core::asr::WindowTranscriber for WhisperEngine {
+impl WindowTranscriber for WhisperEngine {
     fn transcribe(
         &mut self,
         window: &[f32],
         lang: Option<&str>,
-        allowed: &kikimimic_core::domain::Spoken,
+        allowed: &Spoken,
     ) -> Result<Hypothesis> {
         let codes: Vec<String> = allowed.iter().map(|l| l.as_str().to_string()).collect();
         if self.allowed_codes != codes {
             self.set_allowed_langs(&codes)?;
             self.allowed_codes = codes;
         }
-        AsrEngine::transcribe(self, window, lang)
+        self.decode(window, lang)
     }
 }
 
@@ -218,76 +221,6 @@ pub fn load(
         WhisperEngine::load(asr_model, &[])?,
         SileroVad::load(vad_model)?,
     ))
-}
-
-/// The loaded models, shared by every lane and outliving a session.
-///
-/// One copy: the model is most of a gigabyte, and a second lane wanting its
-/// own would double the app's memory to recognise the same languages. They
-/// are only ever used from the pipeline thread, one lane at a time.
-pub struct WhisperModels {
-    pub engine: WhisperEngine,
-    pub vad: SileroVad,
-    /// What the engine was last told detection may choose between. The
-    /// models outlive a session while the policy can change between (and
-    /// during) sessions, so the two have to be compared rather than assumed.
-    pub spoken: Vec<String>,
-}
-
-impl WhisperModels {
-    pub fn load(asr_model: &str, vad_model: &str, spoken: &[String]) -> Result<Self> {
-        Ok(Self {
-            engine: WhisperEngine::load(asr_model, spoken)?,
-            vad: SileroVad::load(vad_model)?,
-            spoken: spoken.to_vec(),
-        })
-    }
-}
-
-/// The Whisper strategy: a rolling window, re-decoded on a cadence, with
-/// LocalAgreement deciding what has settled ([`kikimimic_core::scheduler`]).
-///
-/// The window state is per lane; the models behind it are not. `Rc` rather
-/// than `Arc` because both live and die on the pipeline thread — the sharing
-/// here is between two lanes, never between two threads.
-pub struct WhisperRecognizer {
-    models: std::rc::Rc<std::cell::RefCell<WhisperModels>>,
-    scheduler: kikimimic_core::scheduler::StreamScheduler,
-}
-
-impl WhisperRecognizer {
-    pub fn new(models: std::rc::Rc<std::cell::RefCell<WhisperModels>>) -> Self {
-        Self {
-            models,
-            scheduler: kikimimic_core::scheduler::StreamScheduler::new(),
-        }
-    }
-}
-
-impl kikimimic_core::Recognizer for WhisperRecognizer {
-    fn push_audio(&mut self, samples: &[f32]) {
-        self.scheduler.push_audio(samples);
-    }
-
-    fn step(
-        &mut self,
-        lang: Option<&str>,
-    ) -> Result<Option<kikimimic_core::scheduler::StepOutput>> {
-        // Borrowed for the decode only. Nothing else on this thread runs
-        // during it, and nothing holds the models across calls.
-        let models = &mut *self.models.borrow_mut();
-        self.scheduler
-            .step(&mut models.engine, &mut models.vad, lang)
-    }
-
-    fn finish(
-        &mut self,
-        lang: Option<&str>,
-    ) -> Result<Option<kikimimic_core::scheduler::StepOutput>> {
-        let models = &mut *self.models.borrow_mut();
-        self.scheduler
-            .finish(&mut models.engine, &mut models.vad, lang)
-    }
 }
 
 /// For `EngineRegistry::asr("whisper", check_options, factory)`.

@@ -1,9 +1,15 @@
-//! Drives an [`AsrEngine`] over a rolling audio window and turns raw
+//! Drives a window decoder over a rolling audio window and turns raw
 //! hypotheses into committed/volatile text via [`LocalAgreement`].
 
+use crate::asr::{Hypothesis, SpeechDetector};
 use crate::local_agreement::LocalAgreement;
 use crate::resample::TARGET_RATE;
-use crate::{AsrEngine, SpeechDetector};
+
+/// One window decode, as the scheduler needs it. `asr::Windowed` adapts a
+/// [`crate::asr::WindowTranscriber`] to this.
+pub(crate) trait Decode {
+    fn transcribe(&mut self, samples: &[f32], lang: Option<&str>) -> anyhow::Result<Hypothesis>;
+}
 
 /// Below this much audio a decode is wasted (whisper needs ~1s).
 const MIN_WINDOW_SAMPLES: usize = TARGET_RATE as usize;
@@ -88,7 +94,7 @@ impl StreamScheduler {
     /// found speech in it. Whisper reports the offset of its first segment,
     /// so an utterance that starts late in a window is stamped where the
     /// speech is, not where the window opened.
-    fn note_utterance_start(&mut self, hypothesis: &crate::Hypothesis) {
+    fn note_utterance_start(&mut self, hypothesis: &Hypothesis) {
         if hypothesis.text.is_empty() {
             return;
         }
@@ -149,7 +155,7 @@ impl StreamScheduler {
     /// session. Returns None if nothing was pending.
     pub fn finish(
         &mut self,
-        engine: &mut dyn AsrEngine,
+        engine: &mut dyn Decode,
         vad: &mut dyn SpeechDetector,
         lang: Option<&str>,
     ) -> anyhow::Result<Option<StepOutput>> {
@@ -199,7 +205,7 @@ impl StreamScheduler {
 
     pub fn step(
         &mut self,
-        engine: &mut dyn AsrEngine,
+        engine: &mut dyn Decode,
         vad: &mut dyn SpeechDetector,
         lang: Option<&str>,
     ) -> anyhow::Result<Option<StepOutput>> {
@@ -277,7 +283,6 @@ impl StreamScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Hypothesis;
 
     /// One queued hypothesis. `end_ms` of None means "decoded the whole
     /// window".
@@ -341,7 +346,7 @@ mod tests {
         }
     }
 
-    impl AsrEngine for FakeEngine {
+    impl Decode for FakeEngine {
         fn transcribe(
             &mut self,
             samples: &[f32],
@@ -375,7 +380,7 @@ mod tests {
     /// Test stand-in for a real VAD: |sample| >= 0.05 counts as speech.
     struct AmplitudeVad;
 
-    impl crate::SpeechDetector for AmplitudeVad {
+    impl crate::asr::SpeechDetector for AmplitudeVad {
         fn speech_segments(&mut self, samples: &[f32]) -> anyhow::Result<Vec<(usize, usize)>> {
             let mut segments = Vec::new();
             let mut start = None;
@@ -414,7 +419,7 @@ mod tests {
     /// minimum duration (here 0.5s).
     struct MinDurationVad;
 
-    impl crate::SpeechDetector for MinDurationVad {
+    impl crate::asr::SpeechDetector for MinDurationVad {
         fn speech_segments(&mut self, samples: &[f32]) -> anyhow::Result<Vec<(usize, usize)>> {
             let mut all = AmplitudeVad.speech_segments(samples)?;
             all.retain(|(s, e)| e - s >= TARGET_RATE as usize / 2);

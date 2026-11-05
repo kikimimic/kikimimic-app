@@ -585,7 +585,7 @@ mod tests {
             &mut |samples: &[f32], lang: Option<&str>| {
                 assert!(samples.len() >= 16_000, "whisper skips under a second");
                 assert_eq!(lang, Some("ja"));
-                Ok(crate::Hypothesis {
+                Ok(crate::asr::Hypothesis {
                     text: heard.next().unwrap().into(),
                     start_ms: 0,
                     end_ms: 0,

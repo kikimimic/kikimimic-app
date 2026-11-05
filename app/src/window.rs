@@ -20,17 +20,6 @@ use crate::state::{AppState, Translation};
 use crate::widgets::text_input::TextInput;
 use crate::widgets::transcript_line;
 
-/// Languages offered in the picker; any whisper code works in settings.toml.
-const LANGUAGES: &[(&str, &str)] = &[
-    ("ja", "日本語"),
-    ("en", "English"),
-    ("zh", "中文"),
-    ("ko", "한국어"),
-    ("es", "Español"),
-    ("fr", "Français"),
-    ("de", "Deutsch"),
-];
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Session,
@@ -479,7 +468,7 @@ impl MainWindow {
                 .child("Spoken languages (up to two)"),
         );
         let mut row = div().flex().gap_2().flex_wrap();
-        for (code, name) in LANGUAGES {
+        for (code, _, name) in kikimimic_core::language::NAMES {
             let on = spoken.iter().any(|s| s == code);
             let code = *code;
             row = row.child(
@@ -504,7 +493,7 @@ impl MainWindow {
                 }),
             ),
         );
-        for (code, name) in LANGUAGES {
+        for (code, _, name) in kikimimic_core::language::NAMES {
             let on = policy.target.as_ref().is_some_and(|t| t.as_str() == *code);
             let code = *code;
             row = row.child(

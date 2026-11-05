@@ -95,9 +95,9 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 
 ### Step 8: PLaMo 3 Translate を選べるようにする
 
-- [ ] `PromptFormat::Plamo3`（target_lang / source_lang / context / glossary）と、PFN のリファレンスに合わせたゴールデンテスト
+- [x] `PromptFormat::Plamo3`（target_lang / source_lang / context / glossary）と、PFN のリファレンス（`chat_template.jinja`）に合わせたゴールデンテスト
 - [ ] カタログへの追加と、ライセンス承諾の UI
-- [ ] Qwen3-4B との比較（訳の質、ASR と同時に動かしたときの遅延）。結果によって既定にするかを決めるが、ライセンス上、既定にはしない前提で進める
+- [x] Qwen3-4B との比較（[docs/plamo-spike-results.md](docs/plamo-spike-results.md)）。単体では PLaMo が3〜4倍速い。ASR と同時に動かしたときの比較は S2 で行う。既定は Qwen のまま
 
 ### Step 9: 配布
 
@@ -116,7 +116,7 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 |---|---|---|
 | S1 | ggml・whisper.cpp・llama.cpp を1つの -sys でビルドし、1つのバイナリで同時に動かせるか（`~/.ai/kikimimic/architect/ggml-findings.md`） | `isolated`（cdylib + dlopen）のまま進める |
 | S2 | 2レーンが続けて話す条件で、ASR と MT を並行に動かす方式と、直列にしてトークン単位で区切る方式の、確定の遅延と1文あたりの翻訳時間（Qwen3-4B と PLaMo 2B） | 並行のまま進める（v2 と同じ） |
-| S3 | PFML3 の出力が PFN のリファレンスと一致するか。PLaMo 2B の訳の質 | PLaMo は選択肢に加えない |
+| S3 | PFML3 の出力が PFN のリファレンスと一致するか。PLaMo 2B の訳の質 → **済み**: 一致、訳は自然、Qwen の3〜4倍速い | PLaMo は選択肢に加えない |
 | S4 | Windows で、WASAPI loopback と cpal のマイクの時刻を同じ時計に載せられるか | Windows ではマイクの取得も自前で書く |
 | S5 | uv を使わない話者分離（sherpa-onnx など）が実用になるか | 話者分離を任意の追加機能として文書にする |
 | S6 | Zed のタグを上げたときに、GPUI の追従にどれだけ手間がかかるか（Step 0.5 の後で1回、タグを上げてみる） | 上げる頻度を下げる（Zed のリリース数回に1回にする） |

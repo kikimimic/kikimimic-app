@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use kikimimic_core::domain::{Lang, LaneId, Pcm16k, Spoken};
+use kikimimic_core::domain::{LaneId, Lang, Pcm16k, Spoken};
 use kikimimic_core::engine::AsrEngine;
 
 fn env_path(name: &str) -> PathBuf {
@@ -20,14 +20,20 @@ fn env_path(name: &str) -> PathBuf {
 fn english_speech_comes_out_as_english_text() {
     let models = env_path("KKM_MODELS_DIR");
     let mut engine = kikimimic_asr_whisper::load(
-        models.join("ggml-large-v3-turbo-q8_0.bin").to_str().unwrap(),
+        models
+            .join("ggml-large-v3-turbo-q8_0.bin")
+            .to_str()
+            .unwrap(),
         models.join("ggml-silero-v5.1.2.bin").to_str().unwrap(),
     )
     .unwrap();
-    let mut reader = hound::WavReader::open(env_path("KKM_TEST_AUDIO").join("test-en.wav")).unwrap();
+    let mut reader =
+        hound::WavReader::open(env_path("KKM_TEST_AUDIO").join("test-en.wav")).unwrap();
     assert_eq!(reader.spec().sample_rate, 16_000);
-    let samples: Vec<f32> =
-        reader.samples::<i16>().map(|s| s.unwrap() as f32 / i16::MAX as f32).collect();
+    let samples: Vec<f32> = reader
+        .samples::<i16>()
+        .map(|s| s.unwrap() as f32 / i16::MAX as f32)
+        .collect();
     let langs = Spoken::Two(Lang::parse("ja").unwrap(), Lang::parse("en").unwrap());
     let lane = LaneId(0);
     engine.open_lane(lane);
@@ -46,6 +52,8 @@ fn english_speech_comes_out_as_english_text() {
     }
     println!("committed: {text}\nutterances: {utterances:#?}");
     assert!(!utterances.is_empty(), "nothing was recognized");
-    assert!(utterances.iter().any(|u| u.lang == Some(Lang::parse("en").unwrap())));
+    assert!(utterances
+        .iter()
+        .any(|u| u.lang == Some(Lang::parse("en").unwrap())));
     assert!(text.to_lowercase().contains("search"), "{text}");
 }
