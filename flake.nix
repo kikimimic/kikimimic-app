@@ -22,8 +22,15 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          default = pkgs.mkShell {
+          # NoCC, and Apple's clang: nixpkgs' cc wrapper pins apple-sdk 14.4 and
+          # a linker that cannot read the macOS 26+ SDK, which SpeechAnalyzer
+          # (kikimimic-asr-apple) needs.
+          default = pkgs.mkShellNoCC {
             SDKROOT = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk";
+            CC = "/usr/bin/clang";
+            CXX = "/usr/bin/clang++";
+            CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER = "/usr/bin/clang";
+            CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER = "/usr/bin/clang";
 
             packages = [
               # rustup, not nixpkgs' cargo/rustc: rust-toolchain.toml pins the

@@ -406,7 +406,7 @@ impl MainWindow {
             .size_full()
             .overflow_y_scroll();
         for (i, m) in store.catalog().models().iter().enumerate() {
-            if m.kind == ModelKind::Vad {
+            if m.kind == ModelKind::Vad || !crate::engines::runs_here(m) {
                 continue;
             }
             let id = m.id.clone();
@@ -427,12 +427,18 @@ impl MainWindow {
                         m.title,
                         if in_use { ui.in_use() } else { "" }
                     )))
-                    .child(div().text_size(px(12.)).text_color(gray()).child(format!(
-                        "{:?} · {:.1} GB · {}",
-                        m.kind,
-                        size as f64 / 1e9,
-                        m.license.name
-                    ))),
+                    .child(div().text_size(px(12.)).text_color(gray()).child(
+                        if m.files.is_empty() {
+                            format!("{:?} · {}", m.kind, ui.built_into_macos())
+                        } else {
+                            format!(
+                                "{:?} · {:.1} GB · {}",
+                                m.kind,
+                                size as f64 / 1e9,
+                                m.license.name
+                            )
+                        },
+                    )),
             );
             let progress = self.downloads.get(&m.id);
             row =
@@ -545,6 +551,29 @@ impl MainWindow {
                     },
                 )),
             );
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(ui.speech_model()),
+        );
+        let mut row = div().flex().gap_2().flex_wrap();
+        for (i, m) in self.kkm.models().catalog().models().iter().enumerate() {
+            if m.kind != ModelKind::Asr || !crate::engines::runs_here(m) {
+                continue;
+            }
+            let id = m.id.clone();
+            let on = settings.asr_model == m.id;
+            row = row.child(
+                button(("asr", i), m.title.clone(), on).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.update_settings(|s| s.asr_model = id, cx)
+                    },
+                )),
+            );
+        }
+        col = col.child(row);
 
         col = col.child(
             div()

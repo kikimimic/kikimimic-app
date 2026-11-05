@@ -60,6 +60,7 @@ texts! {
     identify_speakers: "Identify speakers", "話者を判別";
     no_recordings: "No recordings yet.", "まだ録音はありません。";
     ready: "Ready", "使用可能";
+    built_into_macos: "Built into macOS", "macOS 標準";
     accept_license: "Accept license", "ライセンスに同意";
     download: "Download", "ダウンロード";
     in_use: "  (in use)", "  （使用中）";
@@ -67,6 +68,7 @@ texts! {
     translate_into: "Translate into", "翻訳先";
     dont_translate: "Don't translate", "翻訳しない";
     mutual: "Also translate the other way (⇄)", "逆方向にも翻訳する（⇄）";
+    speech_model: "Speech recognition model", "音声認識モデル";
     translation_model: "Translation model", "翻訳モデル";
     none: "None", "なし";
     glossary: "Glossary", "辞書";

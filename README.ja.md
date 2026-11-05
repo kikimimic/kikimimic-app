@@ -23,6 +23,7 @@
 | モデル | 用途 | ライセンス |
 |---|---|---|
 | Whisper large-v3-turbo（q8_0）＋ Silero VAD | 文字起こし（既定） | MIT |
+| macOS 標準の音声認識（SpeechAnalyzer） | 文字起こし（macOS 26 以降。ダウンロード不要。話される言語の1つ目だけを聞く） | macOS の一部 |
 | Qwen3 4B Instruct 2507（Q4_K_M） | 翻訳（既定） | Apache-2.0 |
 | PLaMo 3 Translate 2B（Q4_K_M） | 翻訳（任意） | PLaMo Community License。個人・非商用は無料、商用は PFN への登録が必要 |
 
@@ -30,7 +31,7 @@
 
 ## ビルド（macOS）
 
-Rust のバージョンは `rust-toolchain.toml` で固定しています（rustup が読みます）。それ以外は `nix develop` でそろいます。Nix を使わない場合は、Xcode のコマンドラインツールと CMake が必要です。
+Rust のバージョンは `rust-toolchain.toml` で固定しています（rustup が読みます）。それ以外は `nix develop` でそろいます。Nix を使わない場合は、Xcode のコマンドラインツール（SpeechAnalyzer のため macOS 26 以降の SDK）と CMake が必要です。
 
 翻訳バックエンドは別の cdylib としてビルドします。llama.cpp の ggml と whisper.cpp の ggml を同じバイナリに入れられないためです（[ADR-153805](docs/ADR/20260819-143000-isolate-llama-cpp-in-a-cdylib.md)）。
 
