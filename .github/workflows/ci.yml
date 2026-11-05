@@ -52,3 +52,27 @@ jobs:
       - run: mkdir -p build
       - run: cargo clippy -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic-mt-llama-dylib -p kikimimic --all-targets
       - run: cargo test -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic
+
+  # The GPUI app is its own workspace until the v2 Tauri app is gone
+  # (plan.md Step 6).
+  app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+      - run: cargo clippy --manifest-path app/Cargo.toml --all-targets
+      - run: cargo test --manifest-path app/Cargo.toml
+
+  # MIT app, GPL crates one `use` away in Zed's repo (ADR-120002).
+  licenses:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python3 -I scripts/check-licenses.py Cargo.toml
+      - run: python3 -I scripts/check-licenses.py app/Cargo.toml
