@@ -202,7 +202,13 @@ fn build_prompt(t: &Translator, sentence: &str, source: &str, target: &str) -> R
 
 fn translate(t: &mut Translator, sentence: &str, source: &str, target: &str) -> Result<String> {
     let prompt = build_prompt(t, sentence, source, target)?;
-    let tokens = t.model.str_to_token(&prompt, AddBos::Never)?;
+    generate(t, &prompt, sentence)
+}
+
+/// Greedy generation from a fully rendered prompt. `label` only names the
+/// request in the truncation log.
+fn generate(t: &mut Translator, prompt: &str, label: &str) -> Result<String> {
+    let tokens = t.model.str_to_token(prompt, AddBos::Never)?;
     anyhow::ensure!(!tokens.is_empty(), "prompt tokenized to nothing");
     anyhow::ensure!(
         tokens.len() + MAX_OUTPUT_TOKENS as usize <= N_CTX as usize,
@@ -235,7 +241,7 @@ fn translate(t: &mut Translator, sentence: &str, source: &str, target: &str) -> 
         if generated >= MAX_OUTPUT_TOKENS {
             eprintln!(
                 "kikimimic-mt-llama: hit the {MAX_OUTPUT_TOKENS}-token output cap, \
-                 translation may be truncated: {sentence}"
+                 translation may be truncated: {label}"
             );
             break;
         }
