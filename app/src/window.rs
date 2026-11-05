@@ -549,6 +549,48 @@ impl MainWindow {
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
+                .child(ui.recognition_model()),
+        );
+        let catalog = self.kkm.models().catalog();
+        let mut row = div().flex().gap_2().flex_wrap();
+        for (i, m) in catalog.models().iter().enumerate() {
+            if m.kind != ModelKind::Asr {
+                continue;
+            }
+            let id = m.id.clone();
+            let on = settings.asr_model == m.id;
+            row = row.child(
+                button(("asr", i), m.title.clone(), on).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.update_settings(|s| s.asr_model = id, cx)
+                    },
+                )),
+            );
+        }
+        col = col.child(row);
+        if let Some(asr) = catalog.get(&settings.asr_model) {
+            let unheard: Vec<&str> = asr
+                .unheard(&policy.spoken)
+                .map(|l| {
+                    kikimimic_core::language::NAMES
+                        .iter()
+                        .find(|(code, ..)| *code == l.as_str())
+                        .map_or(l.as_str(), |(_, _, name)| *name)
+                })
+                .collect();
+            if !unheard.is_empty() {
+                col = col.child(div().text_color(rgb(0x9a6700)).child(format!(
+                    "{}{}",
+                    ui.unheard_languages(),
+                    unheard.join(", ")
+                )));
+            }
+        }
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
                 .child(ui.translation_model()),
         );
         let mut row = div().flex().gap_2().flex_wrap().child(

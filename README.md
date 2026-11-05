@@ -19,7 +19,7 @@ The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the sha
 - Word-level live transcription with local Whisper (whisper.cpp, Metal)
 - Sentence-level live translation with a local LLM (llama.cpp, GGUF)
 - Separate lanes for your microphone and system audio, recorded on one timeline
-- A glossary that fixes misrecognitions and keeps names intact in translations
+- A glossary that fixes misrecognitions and keeps names intact in translations; with Haas it also helps recognize those words
 - Face-to-face mode: microphone only, nothing recorded
 
 ## Models
