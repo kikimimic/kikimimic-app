@@ -1,0 +1,15 @@
+[package]
+name = "kikimimic-asr-apple"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+# The speech recognizer built into macOS 26 and later (SpeechAnalyzer). Its
+# API is Swift-only, so build.rs compiles a small Swift bridge with swiftc.
+[dependencies]
+anyhow = "1"
+kikimimic-core = { path = "../kikimimic-core" }
+toml = "1"
+
+[dev-dependencies]
+hound = "3.5"
