@@ -9,3 +9,6 @@ kikimimic-core = { path = "../kikimimic-core" }
 anyhow = "1"
 toml = "0.8"
 whisper-rs = { version = "0.16.0", features = ["metal"] }
+
+[dev-dependencies]
+hound = "3.5"

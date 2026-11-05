@@ -1,0 +1,669 @@
+//! The main window: session, recordings, models and settings.
+
+use std::time::Duration;
+
+use gpui::{
+    AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, Window,
+    div, hsla, prelude::*, px, rgb,
+};
+use kikimimic_core::capture::SourceDecision;
+use kikimimic_core::catalog::ModelKind;
+use kikimimic_core::domain::{Lang, LanguagePolicy, Spoken};
+use kikimimic_core::event::{Notice, Phase};
+use kikimimic_core::glossary::GlossaryEntry;
+use kikimimic_core::library::{self, Recording};
+use kikimimic_core::store::ModelState;
+use kikimimic_core::{Kikimimic, SessionMode};
+
+use crate::downloads::{Downloads, Progress};
+use crate::state::{AppState, Translation};
+use crate::widgets::text_input::TextInput;
+use crate::widgets::transcript_line;
+
+/// Languages offered in the picker; any whisper code works in settings.toml.
+const LANGUAGES: &[(&str, &str)] = &[
+    ("ja", "日本語"),
+    ("en", "English"),
+    ("zh", "中文"),
+    ("ko", "한국어"),
+    ("es", "Español"),
+    ("fr", "Français"),
+    ("de", "Deutsch"),
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Session,
+    Recordings,
+    Models,
+    Settings,
+}
+
+pub struct MainWindow {
+    kkm: Kikimimic,
+    state: Entity<AppState>,
+    tab: Tab,
+    scroll: ScrollHandle,
+    downloads: Downloads,
+    recordings: Vec<Recording>,
+    open_recording: Option<library::Session>,
+    wrong: Entity<TextInput>,
+    right: Entity<TextInput>,
+    error: Option<String>,
+}
+
+fn gray() -> Hsla {
+    hsla(0., 0., 0.55, 1.)
+}
+
+fn button(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .px_3()
+        .py_1()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(rgb(0xd0d7de))
+        .cursor_pointer()
+        .bg(if selected {
+            rgb(0x1f2328)
+        } else {
+            rgb(0xffffff)
+        })
+        .text_color(if selected {
+            rgb(0xffffff)
+        } else {
+            rgb(0x1f2328)
+        })
+        .hover(|s| s.border_color(rgb(0x8c959f)))
+        .child(label.into())
+}
+
+fn mm_ss(ms: u64) -> String {
+    let s = ms / 1000;
+    format!("{:02}:{:02}", s / 60, s % 60)
+}
+
+fn notice_text(n: &Notice) -> String {
+    match n {
+        Notice::SourceUnavailable { role, reason } => format!("{role:?} unavailable: {reason}"),
+        Notice::SystemAudioSilent { .. } => "System audio is silent. Allow Kikimimic in System \
+            Settings > Privacy & Security > Screen & System Audio Recording."
+            .into(),
+        Notice::RecordingOff { reason } => format!("Recording stopped: {reason}"),
+        Notice::Overrun { lane, dropped_ms } => {
+            format!("{}: {dropped_ms} ms of audio dropped", lane.as_str())
+        }
+        Notice::DecodeFailed { lane, reason } => {
+            format!("{}: recognition failed: {reason}", lane.as_str())
+        }
+        Notice::TranslationUnavailable { reason } => format!("Translation unavailable: {reason}"),
+    }
+}
+
+impl MainWindow {
+    pub fn new(kkm: Kikimimic, state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&state, |this: &mut Self, _, cx| {
+            this.scroll.scroll_to_bottom();
+            cx.notify();
+        })
+        .detach();
+        let wrong = cx.new(|cx| TextInput::new("Misrecognized as…", cx));
+        let right = cx.new(|cx| TextInput::new("Correct spelling", cx));
+        Self {
+            kkm,
+            state,
+            tab: Tab::Session,
+            scroll: ScrollHandle::new(),
+            downloads: Downloads::default(),
+            recordings: Vec::new(),
+            open_recording: None,
+            wrong,
+            right,
+            error: None,
+        }
+    }
+
+    fn select(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        self.tab = tab;
+        if tab == Tab::Recordings {
+            self.recordings = library::list(&crate::paths::recordings_dir());
+            self.open_recording = None;
+        }
+        cx.notify();
+    }
+
+    /// Redraw while downloads run, so their progress moves.
+    fn watch_downloads(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(300))
+                    .await;
+                let Ok(running) = this.update(cx, |w, cx| {
+                    cx.notify();
+                    w.downloads.any_running()
+                }) else {
+                    return;
+                };
+                if !running {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn update_settings(
+        &mut self,
+        change: impl FnOnce(&mut kikimimic_core::settings::Settings),
+        cx: &mut Context<Self>,
+    ) {
+        let mut settings = self.kkm.settings();
+        change(&mut settings);
+        self.error = self.kkm.update_settings(settings).err();
+        cx.notify();
+    }
+
+    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let tabs = [
+            (Tab::Session, "Session"),
+            (Tab::Recordings, "Recordings"),
+            (Tab::Models, "Models"),
+            (Tab::Settings, "Settings"),
+        ];
+        div()
+            .flex()
+            .gap_2()
+            .items_center()
+            .px_4()
+            .py_2()
+            .border_b_1()
+            .border_color(rgb(0xd0d7de))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .mr_4()
+                    .child("Kikimimic"),
+            )
+            .children(tabs.into_iter().map(|(tab, label)| {
+                button(label, label, self.tab == tab)
+                    .on_click(cx.listener(move |this, _, _, cx| this.select(tab, cx)))
+            }))
+    }
+
+    fn session(&self, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.state.read(cx);
+        let listening = state.is_listening();
+        let busy = matches!(state.phase, Phase::Stopping);
+        let mut col = div().flex().flex_col().size_full().gap_2().p_4();
+        let mut controls = div().flex().gap_2().items_center();
+        if listening {
+            controls = controls.child(
+                button("stop", "■ Stop", true)
+                    .on_click(cx.listener(|this, _, _, _| this.kkm.stop_session())),
+            );
+        } else if !busy {
+            controls = controls
+                .child(button("meeting", "● Record meeting", false).on_click(
+                    cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::Meeting)),
+                ))
+                .child(button("face", "Face to face", false).on_click(
+                    cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::FaceToFace)),
+                ));
+        }
+        let phase = match &state.phase {
+            Phase::Idle => "Idle".to_string(),
+            Phase::Listening => "Listening".to_string(),
+            Phase::Stopping => "Finishing translations…".to_string(),
+            Phase::Error { message } => format!("Error: {message}"),
+        };
+        controls = controls.child(div().text_color(gray()).child(phase));
+        col = col.child(controls);
+        if let Some(q) = &state.question {
+            let uid = q.uid.clone();
+            let uid2 = q.uid.clone();
+            col = col.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .p_2()
+                    .bg(rgb(0xfff8c5))
+                    .child(format!(
+                        "Output changed to {} (capturing {}). Follow it?",
+                        q.detected, q.capturing
+                    ))
+                    .child(button("follow", "Follow", false).on_click(cx.listener(
+                        move |this, _, _, _| {
+                            this.kkm
+                                .decide_source(SourceDecision::Follow { uid: uid.clone() })
+                        },
+                    )))
+                    .child(button("stay", "Stay", false).on_click(cx.listener(
+                        move |this, _, _, _| {
+                            this.kkm
+                                .decide_source(SourceDecision::Stay { uid: uid2.clone() })
+                        },
+                    ))),
+            );
+        }
+        for n in &state.notices {
+            col = col.child(div().text_color(rgb(0x9a6700)).child(notice_text(n)));
+        }
+        if let Some(m) = &state.source_message {
+            col = col.child(div().text_color(gray()).child(m.clone()));
+        }
+        let lines = state.lines.iter().map(|l| {
+            let mut row = div().flex().flex_col().gap_1().py_1();
+            let time = l
+                .start
+                .map(|t| mm_ss(t.0))
+                .unwrap_or_else(|| "··:··".into());
+            row = row.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(time)
+                    .child(l.lane.as_str().to_string()),
+            );
+            row = row.child(transcript_line::render(&l.committed, &l.volatile, gray()));
+            let translation = match &l.translation {
+                Translation::None => None,
+                Translation::Pending => Some(("Translating…".to_string(), gray())),
+                Translation::Text(t) => Some((t.clone(), Hsla::from(rgb(0x0969da)))),
+                Translation::Dropped => None,
+                Translation::Failed(m) => Some((
+                    format!("Translation failed: {m}"),
+                    Hsla::from(rgb(0xcf222e)),
+                )),
+            };
+            if let Some((text, color)) = translation {
+                row = row.child(div().text_color(color).child(text));
+            }
+            row
+        });
+        col.child(
+            div()
+                .id("transcript")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll)
+                .children(lines),
+        )
+        .into_any_element()
+    }
+
+    fn recordings_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut col = div()
+            .id("recordings")
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_4()
+            .size_full()
+            .overflow_y_scroll();
+        if let Some(session) = &self.open_recording {
+            col = col.child(
+                button("back", "← All recordings", false).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.open_recording = None;
+                        cx.notify();
+                    },
+                )),
+            );
+            for line in &session.lines {
+                let mut row = div().flex().flex_col().py_1().child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .text_size(px(12.))
+                        .text_color(gray())
+                        .child(mm_ss(line.start_ms))
+                        .child(line.speaker.clone().unwrap_or_else(|| line.lane.clone())),
+                );
+                row = row.child(line.text.clone());
+                if let Some(t) = &line.translation {
+                    row = row.child(div().text_color(rgb(0x0969da)).child(t.clone()));
+                }
+                col = col.child(row);
+            }
+            return col.into_any_element();
+        }
+        if self.recordings.is_empty() {
+            return col
+                .child(div().text_color(gray()).child("No recordings yet."))
+                .into_any_element();
+        }
+        for (i, r) in self.recordings.iter().enumerate() {
+            let dir = r.dir.clone();
+            let title = r.title.clone().unwrap_or_else(|| r.name.clone());
+            col = col.child(
+                div()
+                    .id(("recording", i))
+                    .flex()
+                    .flex_col()
+                    .p_2()
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(0xf6f8fa)))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                    .child(div().text_size(px(12.)).text_color(gray()).child(format!(
+                        "{} · {} lines · {}",
+                        mm_ss(r.duration_ms),
+                        r.utterances,
+                        r.snippet
+                    )))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        match library::read(std::path::Path::new(&dir)) {
+                            Ok(s) => this.open_recording = Some(s),
+                            Err(e) => this.error = Some(format!("{e:#}")),
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        col.into_any_element()
+    }
+
+    fn models_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let store = self.kkm.models().clone();
+        let settings = self.kkm.settings();
+        let mut col = div()
+            .id("models")
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .overflow_y_scroll();
+        for (i, m) in store.catalog().models().iter().enumerate() {
+            if m.kind == ModelKind::Vad {
+                continue;
+            }
+            let id = m.id.clone();
+            let size: u64 = m.files.iter().map(|f| f.bytes).sum();
+            let state = store.state(&m.id).unwrap_or(ModelState::Missing {
+                partial: 0,
+                total: size,
+            });
+            let in_use =
+                settings.asr_model == m.id || settings.mt_model.as_deref() == Some(m.id.as_str());
+            let mut row = div().flex().gap_3().items_center().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
+                        "{}{}",
+                        m.title,
+                        if in_use { "  (in use)" } else { "" }
+                    )))
+                    .child(div().text_size(px(12.)).text_color(gray()).child(format!(
+                        "{:?} · {:.1} GB · {}",
+                        m.kind,
+                        size as f64 / 1e9,
+                        m.license.name
+                    ))),
+            );
+            let progress = self.downloads.get(&m.id);
+            row = match (state, progress) {
+                (_, Some(Progress::Running { received, total })) => row.child(format!(
+                    "Downloading {:.0}%",
+                    if total == 0 {
+                        0.0
+                    } else {
+                        received as f64 * 100.0 / total as f64
+                    }
+                )),
+                (ModelState::Ready, _) => row.child(div().text_color(rgb(0x1a7f37)).child("Ready")),
+                (ModelState::NeedsLicense, _) => {
+                    let url = m.license.url.clone().unwrap_or_default();
+                    row.child(div().text_size(px(12.)).text_color(gray()).child(url))
+                        .child(button(("accept", i), "Accept license", false).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.error = this.kkm.models().accept_license(&id).err();
+                                cx.notify();
+                            }),
+                        ))
+                }
+                (ModelState::Missing { .. }, failed) => {
+                    if let Some(Progress::Failed(e)) = failed {
+                        row = row.child(div().text_color(rgb(0xcf222e)).child(e));
+                    }
+                    row.child(
+                        button(("download", i), "Download", false).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                if this.downloads.start(this.kkm.models().clone(), id.clone()) {
+                                    this.watch_downloads(cx);
+                                }
+                                cx.notify();
+                            },
+                        )),
+                    )
+                }
+            };
+            col = col.child(row);
+        }
+        col.into_any_element()
+    }
+
+    fn settings_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let settings = self.kkm.settings();
+        let policy = settings.languages.clone();
+        let spoken: Vec<String> = policy
+            .spoken
+            .iter()
+            .map(|l| l.as_str().to_string())
+            .collect();
+        let mut col = div()
+            .id("settings")
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .overflow_y_scroll();
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Spoken languages (up to two)"),
+        );
+        let mut row = div().flex().gap_2().flex_wrap();
+        for (code, name) in LANGUAGES {
+            let on = spoken.iter().any(|s| s == code);
+            let code = *code;
+            row = row.child(
+                button(SharedString::from(format!("spoken-{code}")), *name, on).on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        this.update_settings(|s| toggle_spoken(&mut s.languages, code), cx)
+                    }),
+                ),
+            );
+        }
+        col = col.child(row);
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Translate into"),
+        );
+        let mut row = div().flex().gap_2().flex_wrap().child(
+            button("target-none", "Don't translate", policy.target.is_none()).on_click(
+                cx.listener(|this, _, _, cx| {
+                    this.update_settings(|s| s.languages.target = None, cx)
+                }),
+            ),
+        );
+        for (code, name) in LANGUAGES {
+            let on = policy.target.as_ref().is_some_and(|t| t.as_str() == *code);
+            let code = *code;
+            row = row.child(
+                button(SharedString::from(format!("target-{code}")), *name, on).on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        this.update_settings(|s| s.languages.target = Lang::parse(code).ok(), cx)
+                    }),
+                ),
+            );
+        }
+        col = col.child(row).child(
+            button("mutual", "Also translate the other way (⇄)", policy.mutual).on_click(
+                cx.listener(|this, _, _, cx| {
+                    this.update_settings(|s| s.languages.mutual = !s.languages.mutual, cx)
+                }),
+            ),
+        );
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Translation model"),
+        );
+        let mut row = div().flex().gap_2().flex_wrap().child(
+            button("mt-none", "None", settings.mt_model.is_none()).on_click(
+                cx.listener(|this, _, _, cx| this.update_settings(|s| s.mt_model = None, cx)),
+            ),
+        );
+        for (i, m) in self.kkm.models().catalog().models().iter().enumerate() {
+            if m.kind != ModelKind::Mt {
+                continue;
+            }
+            let id = m.id.clone();
+            let on = settings.mt_model.as_deref() == Some(m.id.as_str());
+            row = row.child(button(("mt", i), m.title.clone(), on).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    let id = id.clone();
+                    this.update_settings(|s| s.mt_model = Some(id), cx)
+                },
+            )));
+        }
+        col = col.child(row);
+
+        col = col
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Glossary"))
+            .child(
+                div().text_size(px(12.)).text_color(gray()).child(
+                    "Fixes what the recognizer gets wrong, and keeps the right spelling in translations.",
+                ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().w(px(220.)).child(self.wrong.clone()))
+                    .child("→")
+                    .child(div().w(px(220.)).child(self.right.clone()))
+                    .child(button("add", "Add", false).on_click(cx.listener(|this, _, _, cx| {
+                        let wrong = this.wrong.read(cx).text().trim().to_string();
+                        let right = this.right.read(cx).text().trim().to_string();
+                        if wrong.is_empty() || right.is_empty() {
+                            return;
+                        }
+                        this.update_settings(|s| s.glossary.entries.push(GlossaryEntry { wrong, right }), cx);
+                        this.wrong.update(cx, |i, cx| i.clear(cx));
+                        this.right.update(cx, |i, cx| i.clear(cx));
+                    }))),
+            );
+        for (i, e) in settings.glossary.entries.iter().enumerate() {
+            col = col.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(format!("{} → {}", e.wrong, e.right))
+                    .child(button(("remove", i), "Remove", false).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            this.update_settings(
+                                |s| {
+                                    if i < s.glossary.entries.len() {
+                                        s.glossary.entries.remove(i);
+                                    }
+                                },
+                                cx,
+                            )
+                        },
+                    ))),
+            );
+        }
+        col.into_any_element()
+    }
+}
+
+/// Toggle a spoken language, keeping one or two.
+fn toggle_spoken(policy: &mut LanguagePolicy, code: &str) {
+    let Ok(lang) = Lang::parse(code) else { return };
+    let mut langs: Vec<Lang> = policy.spoken.iter().cloned().collect();
+    if let Some(i) = langs.iter().position(|l| *l == lang) {
+        if langs.len() > 1 {
+            langs.remove(i);
+        }
+    } else {
+        langs.push(lang);
+        if langs.len() > 2 {
+            langs.remove(0);
+        }
+    }
+    if let Ok(spoken) = Spoken::try_from(langs) {
+        policy.spoken = spoken;
+    }
+}
+
+impl Render for MainWindow {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = match self.tab {
+            Tab::Session => self.session(cx),
+            Tab::Recordings => self.recordings_view(cx),
+            Tab::Models => self.models_view(cx),
+            Tab::Settings => self.settings_view(cx),
+        };
+        let mut root = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(0xffffff))
+            .text_color(rgb(0x1f2328))
+            .text_size(px(14.))
+            .child(self.header(cx));
+        if let Some(e) = &self.error {
+            root = root.child(
+                div()
+                    .px_4()
+                    .py_1()
+                    .bg(rgb(0xffebe9))
+                    .text_color(rgb(0xcf222e))
+                    .child(e.clone()),
+            );
+        }
+        root.child(div().flex_1().min_h_0().child(body))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn codes(p: &LanguagePolicy) -> Vec<&str> {
+        p.spoken.iter().map(|l| l.as_str()).collect()
+    }
+
+    #[test]
+    fn toggling_keeps_one_or_two_spoken_languages() {
+        let mut p = LanguagePolicy::default(); // ja, en
+        toggle_spoken(&mut p, "ko");
+        assert_eq!(codes(&p), ["en", "ko"], "the oldest gives way");
+        toggle_spoken(&mut p, "en");
+        assert_eq!(codes(&p), ["ko"]);
+        toggle_spoken(&mut p, "ko");
+        assert_eq!(codes(&p), ["ko"], "the last language stays");
+    }
+}

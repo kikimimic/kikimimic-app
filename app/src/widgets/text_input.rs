@@ -695,6 +695,19 @@ impl TextInput {
     }
 }
 
+impl TextInput {
+    pub fn text(&self) -> &str {
+        &self.content
+    }
+
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.content = SharedString::default();
+        self.selected_range = 0..0;
+        self.marked_range = None;
+        cx.notify();
+    }
+}
+
 /// Key bindings for every `TextInput`. Call once at startup.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([

@@ -2088,6 +2088,7 @@ name = "kikimimic-asr-whisper"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hound",
  "kikimimic-core",
  "toml 0.8.2",
  "whisper-rs",
