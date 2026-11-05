@@ -5,6 +5,7 @@ members = [
     "crates/kikimimic-mt-llama",
     "crates/kikimimic-mt-llama-dylib",
     "crates/kikimimic-asr-whisper",
+    "crates/kikimimic-asr-speech",
     "crates/kikimimic-capture",
     "crates/kikimimic-diarize-nemotron",
     "app",
