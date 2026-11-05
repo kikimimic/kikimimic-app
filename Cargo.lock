@@ -2738,6 +2738,8 @@ name = "kikimimic-mt-llama"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hound",
+ "kikimimic-asr-whisper",
  "kikimimic-core",
  "libloading 0.9.0",
  "toml 1.2.0+spec-1.1.0",

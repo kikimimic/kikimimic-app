@@ -13,3 +13,9 @@ anyhow = "1"
 toml = "1"
 libloading = "0.9"
 kikimimic-core = { path = "../kikimimic-core" }
+
+[dev-dependencies]
+# Spike S2 runs recognition next to translation in one test binary: whisper
+# statically, llama through the isolated dylib, as the app does.
+hound = "3.5"
+kikimimic-asr-whisper = { path = "../kikimimic-asr-whisper" }
