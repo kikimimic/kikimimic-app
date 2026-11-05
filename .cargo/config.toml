@@ -1,0 +1,5 @@
+[env]
+# The app's LSMinimumSystemVersion (scripts/bundle-mac.sh). rustc links for
+# macOS 11.0 otherwise, and below 12.0 the SDK points libswift_Concurrency at
+# @rpath, which nothing provides.
+MACOSX_DEPLOYMENT_TARGET = "14.2"
