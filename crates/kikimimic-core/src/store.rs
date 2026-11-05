@@ -264,6 +264,13 @@ mod tests {
             title = "Gated"
             license = {{ name = "Custom", requires_acceptance = true }}
             files = [{{ name = "gated.bin", url = "u", sha256 = "{HELLO_SHA}", bytes = 5 }}]
+            [[model]]
+            id = "os"
+            kind = "asr"
+            engine = "x"
+            title = "Built into the OS"
+            license = {{ name = "OS" }}
+            files = []
             "#
         );
         Box::leak(Box::new(Catalog::parse(&text).unwrap()))
@@ -284,6 +291,13 @@ mod tests {
         let mut w = store.begin_install(f)?;
         w.write(bytes)?;
         w.commit()
+    }
+
+    #[test]
+    fn a_model_the_os_provides_is_ready_without_a_download() {
+        let (s, _) = store();
+        assert_eq!(s.state("os").unwrap(), ModelState::Ready);
+        assert!(s.resolve("os").is_ok());
     }
 
     #[test]
