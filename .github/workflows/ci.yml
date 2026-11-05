@@ -28,6 +28,12 @@ jobs:
         os: [macos-14, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # llama.cpp (a git dependency of the translation dylib, resolved with
+      # the workspace) has paths beyond Windows' 260-character limit.
+      - if: runner.os == 'Windows'
+        run: |
+          git config --global core.longpaths true
+          echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> $env:GITHUB_ENV
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
