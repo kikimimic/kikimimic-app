@@ -23,7 +23,7 @@ references/
 cclens.db
 
 # v2 spike artifacts
-/target
+target/
 /models
 /assets
 
