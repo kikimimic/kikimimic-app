@@ -15,8 +15,14 @@ pub mod local_agreement;
 pub mod mix;
 pub mod models;
 pub mod resample;
+mod runtime;
 pub mod scheduler;
 pub mod sim;
+
+pub use conductor::RecordingTarget;
+pub use runtime::{
+    AsrLoader, CaptureBackend, CaptureHandle, Config, Events, Kikimimic, MtLoader, SessionMode,
+};
 pub mod translate;
 
 /// Which audio lane an event belongs to.
