@@ -109,6 +109,36 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 - [x] リリースのワークフロー（`.github/workflows/release.yml`）と、`homebrew-tap` の cask を自動で更新する仕組み（`scripts/render-cask.sh`、`TAP_TOKEN` があるとき）
 - [ ] 最初のリリース（タグ `v0.1.0`）
 
+### Step 10: Google カレンダー連携と会議前の通知カード
+
+方針は [ADR-120000（2026-11-06）](docs/ADR/20261106-120000-read-google-calendar-on-opt-in.md)。Calendrop の `OAuth.swift`、`LoopbackAuthenticator.swift`、`GoogleCalendarSource.swift`、`GoogleCalendarParser.swift`、`CutinPolicy.swift` を Rust に移した形です。core は通信しないので（deny list）、すべて `app/` に置きます。
+
+**データの形**
+
+| 型 | 場所 | 役割 |
+|---|---|---|
+| `Meeting { key, title, start, end, join_url }` | `app/src/calendar.rs` | 1回分の会議。`key` は `iCalUID` と開始時刻で、通知を閉じた記録に使う |
+| `parse_events(json) -> Vec<Meeting>` | 同上 | 取り消し、終日、辞退した予定、`outOfOffice` などを除く |
+| `due(meetings, now, dismissed) -> Vec<Meeting>` | 同上 | 開始の `LEAD` 前から、開始後 `GRACE` か終了の早いほうまでの会議 |
+| `Account { email, refresh_token }` | `app/src/google.rs` | キーチェーンの1項目に JSON で置く |
+| `Calendar`（gpui の Entity） | `app/src/calendar.rs` | `Status`（`Unavailable` / `SignedOut` / `SigningIn` / `SignedIn { email }` / `NeedsSignIn { email }`）、会議、閉じた会議、開いているカード |
+| `Cutin`（gpui の View） | `app/src/cutin.rs` | 中央上部のカード。`WindowKind::PopUp`、`focus: false` |
+
+**動き**
+
+- 5分ごと（とサインインの直後）に、今から36時間ぶんのメインカレンダーを読む
+- 15秒ごとに `due` を見て、あればカードを開く。開いている間に due になった会議はカードに加わる
+- カードのボタン: 「参加して録音」（会議 URL を開いて会議の録音を始める）、「録音を開始」、「閉じる」（カードの会議をすべて閉じたことにする）。録音中は録音のボタンを出さない。録音を始めたらメインウィンドウを前面に出す
+- `KKM_CALENDAR_DEMO=1` で、1分後に始まる架空の会議を足す（クライアントの無い開発者と、動作確認のため）
+
+**作業**
+
+- [ ] `calendar.rs` の純粋な部分（`parse_events`、`join_url`、`due`）をテストから
+- [ ] `google.rs`: PKCE、認可 URL、リダイレクトの解析、スコープの確認（純粋、テストあり）と、ループバックの受け口、トークンの交換と更新、キーチェーン
+- [ ] `Calendar` の Entity と取得・確認のループ、設定タブのサインイン
+- [ ] `cutin.rs` のカード
+- [ ] README（英語と日本語）の「通信しない」の記述と開発用の環境変数、`bundle-mac.sh` への `KKM_GOOGLE_CLIENT_*` の受け渡し
+
 ### 後で
 
 - Windows（WASAPI loopback + cpal mic、spike S4）、Linux（PipeWire monitor）
