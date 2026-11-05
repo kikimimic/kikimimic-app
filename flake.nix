@@ -36,6 +36,7 @@
               # rustup, not nixpkgs' cargo/rustc: rust-toolchain.toml pins the
               # version GPUI needs, and rustup is what reads it.
               pkgs.rustup
+              pkgs.just
               pkgs.cargo-flamegraph
               pkgs.pkg-config
               pkgs.cmake
