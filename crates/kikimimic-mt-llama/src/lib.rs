@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use kikimimic_core::Translator;
 
+mod prompt;
+pub use prompt::PromptFormat;
+
 /// Points at a specific build of the backend, for development and bisecting.
 const DYLIB_ENV: &str = "KKM_TRANSLATE_DYLIB";
 
@@ -26,6 +29,7 @@ const DEFAULT_GPU_LAYERS: u32 = 1_000_000;
 type InitFn = unsafe extern "C" fn(*const c_char, u32) -> *mut c_void;
 type TranslateFn =
     unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char) -> *mut c_char;
+type GenerateFn = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char;
 type FreeFn = unsafe extern "C" fn(*mut c_char);
 type ShutdownFn = unsafe extern "C" fn(*mut c_void);
 
@@ -107,6 +111,8 @@ pub fn find_dylib() -> Result<PathBuf> {
 /// The exported functions, copied out of the loaded library.
 struct Api {
     translate: TranslateFn,
+    /// Absent from v2-era builds of the backend.
+    generate: Option<GenerateFn>,
     free: FreeFn,
     shutdown: ShutdownFn,
 }
@@ -140,6 +146,7 @@ impl GgmlTranslator {
             let init: InitFn = *lib.get(b"kkm_translate_init")?;
             let api = Api {
                 translate: *lib.get(b"kkm_translate")?,
+                generate: lib.get::<GenerateFn>(b"kkm_generate").ok().map(|f| *f),
                 free: *lib.get(b"kkm_translate_free")?,
                 shutdown: *lib.get(b"kkm_translate_shutdown")?,
             };
@@ -155,6 +162,46 @@ impl GgmlTranslator {
                 _lib: lib,
             })
         }
+    }
+}
+
+impl GgmlTranslator {
+    /// Greedy generation from a rendered prompt.
+    pub fn generate(&mut self, prompt: &str) -> Result<String> {
+        let generate = self.api.generate.context(
+            "the translation backend predates kkm_generate; rebuild it with \
+             `cargo build --release -p kikimimic-mt-llama-dylib`",
+        )?;
+        let prompt = CString::new(prompt).context("prompt contains a NUL byte")?;
+        unsafe {
+            let out = generate(self.handle, prompt.as_ptr());
+            anyhow::ensure!(!out.is_null(), "generation failed (see stderr)");
+            let text = CStr::from_ptr(out).to_string_lossy().into_owned();
+            (self.api.free)(out);
+            Ok(text)
+        }
+    }
+}
+
+/// The v3 translator: a GGUF model behind the isolated backend, prompted in
+/// its own format.
+pub struct LlamaMt {
+    backend: GgmlTranslator,
+    format: PromptFormat,
+}
+
+impl LlamaMt {
+    pub fn load(model_path: &Path, format: PromptFormat) -> Result<Self> {
+        Ok(Self {
+            backend: GgmlTranslator::load(model_path)?,
+            format,
+        })
+    }
+}
+
+impl kikimimic_core::engine::MtEngine for LlamaMt {
+    fn translate(&mut self, req: &kikimimic_core::engine::MtRequest<'_>) -> Result<String> {
+        self.backend.generate(&self.format.render(req))
     }
 }
 

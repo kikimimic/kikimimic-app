@@ -7,7 +7,8 @@
 //! Windows) keep it separate from the host's — so the app remains a
 //! single process (ADR-153800).
 //!
-//! C ABI: `kkm_translate_init` once, `kkm_translate` per sentence
+//! C ABI: `kkm_translate_init` once, `kkm_generate` per rendered prompt (or
+//! v2's `kkm_translate` per sentence)
 //! (blocking; call from a queue thread), `kkm_translate_free` per result,
 //! `kkm_translate_shutdown` at the end. Every export catches panics:
 //! unwinding out of `extern "C"` aborts the whole process — host app,
@@ -144,8 +145,38 @@ pub unsafe extern "C" fn kkm_translate(
     })
 }
 
+/// Generate from a prompt the host already rendered (kikimimic-mt-llama's
+/// `PromptFormat`). Returns a heap CString (free with
+/// [`kkm_translate_free`]) or null on error.
+///
 /// # Safety
-/// `s` must be a pointer returned by [`kkm_translate`] (or null).
+/// As [`kkm_translate`].
+#[no_mangle]
+pub unsafe extern "C" fn kkm_generate(
+    handle: *mut Translator,
+    prompt: *const c_char,
+) -> *mut c_char {
+    let Some(translator) = handle.as_mut() else {
+        return std::ptr::null_mut();
+    };
+    let prompt = CStr::from_ptr(prompt).to_string_lossy();
+    catch_unwind(AssertUnwindSafe(|| {
+        match generate(translator, &prompt, "rendered prompt") {
+            Ok(out) => CString::new(out).map_or(std::ptr::null_mut(), CString::into_raw),
+            Err(e) => {
+                eprintln!("kikimimic-mt-llama: {e:#}");
+                std::ptr::null_mut()
+            }
+        }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("kikimimic-mt-llama: panicked");
+        std::ptr::null_mut()
+    })
+}
+
+/// # Safety
+/// `s` must be a pointer returned by [`kkm_translate`] or [`kkm_generate`] (or null).
 #[no_mangle]
 pub unsafe extern "C" fn kkm_translate_free(s: *mut c_char) {
     if !s.is_null() {
