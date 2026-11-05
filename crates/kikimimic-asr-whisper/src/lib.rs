@@ -30,6 +30,9 @@ pub struct WhisperEngine {
     /// When non-empty, auto-detection picks only among these languages
     /// (e.g. the app's Main/Sub pair) instead of whisper's full set.
     allowed_lang_ids: Vec<i32>,
+    /// The codes `allowed_lang_ids` was built from, so an unchanged set is
+    /// not re-resolved on every window.
+    allowed_codes: Vec<String>,
     /// Tuning resolved from the environment once at load time.
     lang_pin_threshold: f32,
 }
@@ -108,6 +111,7 @@ impl WhisperEngine {
         let allowed_lang_ids = to_lang_ids(allowed_langs)?;
         Ok(Self {
             state,
+            allowed_codes: allowed_langs.to_vec(),
             allowed_lang_ids,
             lang_pin_threshold: env_parse("KKM_LANG_PIN_THRESHOLD").unwrap_or(LANG_PIN_THRESHOLD),
         })
@@ -187,6 +191,33 @@ impl AsrEngine for WhisperEngine {
             lang: reported.map(str::to_string),
         })
     }
+}
+
+impl kikimimic_core::asr::WindowTranscriber for WhisperEngine {
+    fn transcribe(
+        &mut self,
+        window: &[f32],
+        lang: Option<&str>,
+        allowed: &kikimimic_core::domain::Spoken,
+    ) -> Result<Hypothesis> {
+        let codes: Vec<String> = allowed.iter().map(|l| l.as_str().to_string()).collect();
+        if self.allowed_codes != codes {
+            self.set_allowed_langs(&codes)?;
+            self.allowed_codes = codes;
+        }
+        AsrEngine::transcribe(self, window, lang)
+    }
+}
+
+/// The v3 engine: one Whisper model and Silero VAD serving every lane.
+pub fn load(
+    asr_model: &str,
+    vad_model: &str,
+) -> Result<kikimimic_core::asr::Windowed<WhisperEngine, SileroVad>> {
+    Ok(kikimimic_core::asr::Windowed::new(
+        WhisperEngine::load(asr_model, &[])?,
+        SileroVad::load(vad_model)?,
+    ))
 }
 
 /// The loaded models, shared by every lane and outliving a session.
