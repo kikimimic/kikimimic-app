@@ -1,9 +1,22 @@
 //! Meetings from Google Calendar and which of them deserve a card now.
 
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, Utc};
+use futures::channel::oneshot;
+use gpui::{
+    AnyWindowHandle, AppContext, Bounds, Context, Entity, WindowBackgroundAppearance, WindowBounds,
+    WindowHandle, WindowKind, WindowOptions, point, px, size,
+};
+use kikimimic_core::Kikimimic;
 use serde::Deserialize;
+
+use crate::cutin::{self, Cutin};
+use crate::google;
+use crate::state::AppState;
 
 // ponytail: fixed; become settings when someone asks.
 /// The card appears this long before a meeting starts.
@@ -19,6 +32,279 @@ pub struct Meeting {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub join_url: Option<String>,
+}
+
+const FETCH_EVERY: StdDuration = StdDuration::from_secs(5 * 60);
+const CHECK_EVERY: StdDuration = StdDuration::from_secs(15);
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Status {
+    /// A build without a Google client: no sign-in, no network.
+    Unavailable,
+    SignedOut,
+    SigningIn,
+    SignedIn {
+        email: String,
+    },
+    NeedsSignIn {
+        email: String,
+    },
+}
+
+pub struct Calendar {
+    kkm: Kikimimic,
+    state: Entity<AppState>,
+    pub main_window: Option<AnyWindowHandle>,
+    client: Option<google::Client>,
+    pub status: Status,
+    meetings: Vec<Meeting>,
+    demo: Option<Meeting>,
+    dismissed: HashSet<String>,
+    card: Option<WindowHandle<Cutin>>,
+    /// Bumped whenever the account changes, so a slow thread's result for an
+    /// earlier state is ignored.
+    generation: u64,
+    cancel_sign_in: Arc<AtomicBool>,
+    pub last_read: Option<DateTime<Local>>,
+    pub last_error: Option<google::Error>,
+}
+
+fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> oneshot::Receiver<T> {
+    let (tx, rx) = oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx
+}
+
+fn demo_meeting() -> Meeting {
+    let start = Utc::now() + Duration::seconds(60);
+    Meeting {
+        key: "demo".into(),
+        title: Some("Demo meeting".into()),
+        start,
+        end: start + Duration::minutes(30),
+        join_url: Some("https://meet.google.com/abc-defg-hij".into()),
+    }
+}
+
+impl Calendar {
+    pub fn new(kkm: Kikimimic, state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        let client = google::client();
+        if client.is_some() {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    if this.update(cx, |c, cx| c.fetch(cx)).is_err() {
+                        return;
+                    }
+                    cx.background_executor().timer(FETCH_EVERY).await;
+                }
+            })
+            .detach();
+        }
+        cx.spawn(async move |this, cx| {
+            loop {
+                if this.update(cx, |c, cx| c.check(cx)).is_err() {
+                    return;
+                }
+                cx.background_executor().timer(CHECK_EVERY).await;
+            }
+        })
+        .detach();
+        Self {
+            kkm,
+            state,
+            main_window: None,
+            client,
+            status: if client.is_some() {
+                Status::SignedOut
+            } else {
+                Status::Unavailable
+            },
+            meetings: Vec::new(),
+            demo: std::env::var("KKM_CALENDAR_DEMO")
+                .is_ok_and(|v| v == "1")
+                .then(demo_meeting),
+            dismissed: HashSet::new(),
+            card: None,
+            generation: 0,
+            cancel_sign_in: Arc::new(AtomicBool::new(false)),
+            last_read: None,
+            last_error: None,
+        }
+    }
+
+    pub fn sign_in(&mut self, cx: &mut Context<Self>) {
+        let Some(client) = self.client else { return };
+        let pending = match google::begin(client) {
+            Ok(p) => p,
+            Err(e) => {
+                self.last_error = Some(google::Error::Other(e.to_string()));
+                cx.notify();
+                return;
+            }
+        };
+        self.cancel_sign_in.store(true, Ordering::Relaxed);
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.cancel_sign_in = cancel.clone();
+        self.generation += 1;
+        let generation = self.generation;
+        self.status = Status::SigningIn;
+        self.last_error = None;
+        cx.open_url(&pending.url);
+        let result = blocking(move || pending.wait(client, &cancel));
+        cx.spawn(async move |this, cx| {
+            let Ok(result) = result.await else { return };
+            let _ = this.update(cx, |c, cx| c.signed_in(generation, result, cx));
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn signed_in(
+        &mut self,
+        generation: u64,
+        result: Result<google::Account, google::Error>,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.generation {
+            return;
+        }
+        match result {
+            Ok(account) => {
+                self.status = Status::SignedIn {
+                    email: account.email,
+                };
+                self.fetch(cx);
+            }
+            Err(e) => {
+                self.status = Status::SignedOut;
+                self.last_error = Some(e);
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn cancel_sign_in(&mut self, cx: &mut Context<Self>) {
+        if self.status != Status::SigningIn {
+            return;
+        }
+        self.cancel_sign_in.store(true, Ordering::Relaxed);
+        self.generation += 1;
+        self.status = Status::SignedOut;
+        cx.notify();
+    }
+
+    pub fn sign_out(&mut self, cx: &mut Context<Self>) {
+        self.generation += 1;
+        self.last_error = google::sign_out().err();
+        self.status = Status::SignedOut;
+        self.meetings.clear();
+        self.last_read = None;
+        cx.notify();
+    }
+
+    fn fetch(&mut self, cx: &mut Context<Self>) {
+        let Some(client) = self.client else { return };
+        if self.status == Status::SigningIn {
+            return;
+        }
+        let generation = self.generation;
+        let result = blocking(move || google::read_calendar(client, Utc::now()));
+        cx.spawn(async move |this, cx| {
+            let Ok(fetched) = result.await else { return };
+            let _ = this.update(cx, |c, cx| c.fetched(generation, fetched, cx));
+        })
+        .detach();
+    }
+
+    fn fetched(&mut self, generation: u64, fetched: google::Fetched, cx: &mut Context<Self>) {
+        if generation != self.generation {
+            return;
+        }
+        match fetched {
+            google::Fetched::SignedOut => {
+                self.status = Status::SignedOut;
+                self.meetings.clear();
+            }
+            google::Fetched::NeedsSignIn { email } => {
+                self.status = Status::NeedsSignIn { email };
+                self.meetings.clear();
+            }
+            google::Fetched::Read { email, meetings } => {
+                self.status = Status::SignedIn { email };
+                self.meetings = meetings;
+                self.last_read = Some(Local::now());
+                self.last_error = None;
+            }
+            google::Fetched::Failed { email, error } => {
+                if let (Some(email), Status::SignedOut) = (email, &self.status) {
+                    self.status = Status::SignedIn { email };
+                }
+                self.last_error = Some(error);
+            }
+        }
+        cx.notify();
+    }
+
+    fn check(&mut self, cx: &mut Context<Self>) {
+        let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
+        let due = due(&all, Utc::now(), &self.dismissed);
+        let Some(card) = self.card else {
+            if !due.is_empty() {
+                self.open_card(due, cx);
+            }
+            return;
+        };
+        if due.is_empty() {
+            let _ = card.update(cx, |_, window, _| window.remove_window());
+            self.card = None;
+        } else if card
+            .update(cx, |cutin, window, cx| cutin.set_meetings(due, window, cx))
+            .is_err()
+        {
+            self.card = None;
+        }
+    }
+
+    fn open_card(&mut self, due: Vec<Meeting>, cx: &mut Context<Self>) {
+        let Some(display) = cx.primary_display() else {
+            return;
+        };
+        let visible = display.visible_bounds();
+        let width = px(cutin::WIDTH);
+        let bounds = Bounds {
+            origin: point(
+                visible.origin.x + (visible.size.width - width) / 2.,
+                visible.origin.y + px(12.),
+            ),
+            size: size(width, cutin::height(due.len())),
+        };
+        let (calendar, kkm, state) = (cx.entity(), self.kkm.clone(), self.state.clone());
+        self.card = cx
+            .open_window(
+                WindowOptions {
+                    kind: WindowKind::PopUp,
+                    focus: false,
+                    titlebar: None,
+                    is_movable: false,
+                    is_resizable: false,
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    display_id: Some(display.id()),
+                    window_background: WindowBackgroundAppearance::Transparent,
+                    ..Default::default()
+                },
+                move |_, cx| cx.new(|cx| Cutin::new(calendar, kkm, state, due, cx)),
+            )
+            .ok();
+    }
+
+    /// The card is gone; its meetings do not come back.
+    pub fn dismiss(&mut self, keys: impl IntoIterator<Item = String>, cx: &mut Context<Self>) {
+        self.dismissed.extend(keys);
+        self.card = None;
+        cx.notify();
+    }
 }
 
 #[derive(Deserialize)]

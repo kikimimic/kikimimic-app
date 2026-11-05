@@ -31,6 +31,7 @@ echo "==> translation backend (cdylib)"
 cargo build --release -p kikimimic-mt-llama-dylib
 
 echo "==> app"
+# KKM_GOOGLE_CLIENT_ID and KKM_GOOGLE_CLIENT_SECRET are read from the environment at build time.
 cargo build --release -p kikimimic
 
 app="target/bundle/Kikimimic.app"
