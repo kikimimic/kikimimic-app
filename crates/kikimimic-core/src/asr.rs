@@ -44,6 +44,9 @@ pub trait WindowTranscriber: Send {
         lang: Option<&str>,
         allowed: &Spoken,
     ) -> anyhow::Result<Hypothesis>;
+
+    /// See [`engine::AsrEngine::set_keywords`].
+    fn set_keywords(&mut self, _keywords: &[crate::glossary::Keyword]) {}
 }
 
 /// Re-decodes a rolling window every second, committing what two decodes
@@ -93,6 +96,10 @@ fn convert(out: StepOutput) -> AsrStep {
 impl<T: WindowTranscriber, V: SpeechDetector> engine::AsrEngine for Windowed<T, V> {
     fn cadence(&self) -> Duration {
         Duration::from_millis(1000)
+    }
+
+    fn set_keywords(&mut self, keywords: &[crate::glossary::Keyword]) {
+        self.transcriber.set_keywords(keywords);
     }
 
     fn open_lane(&mut self, lane: LaneId) {

@@ -11,6 +11,11 @@ pub fn registry() -> EngineRegistry {
         kikimimic_asr_whisper::factory,
     );
     r.asr(
+        "speech",
+        kikimimic_asr_speech::check_options,
+        kikimimic_asr_speech::factory,
+    );
+    r.asr(
         "apple-speech",
         kikimimic_asr_apple::check_options,
         kikimimic_asr_apple::factory,

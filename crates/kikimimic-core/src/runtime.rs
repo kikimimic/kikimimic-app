@@ -28,6 +28,7 @@ use crate::engine::{
     AsrEngine, Diarizer, EngineRegistry, LoadRequest, MtEngine, MtRequest, Recognized,
 };
 use crate::event::{Event, Phase, PostProcessState, StatusView};
+use crate::glossary::Keyword;
 use crate::settings::Settings;
 use crate::store::ModelStore;
 
@@ -216,6 +217,10 @@ struct Models {
 impl Models {
     fn wanted_asr(&self) -> String {
         self.settings.lock().unwrap().asr_model.clone()
+    }
+
+    fn wanted_keywords(&self) -> Vec<Keyword> {
+        self.settings.lock().unwrap().glossary.keywords()
     }
 
     fn wanted_mt(&self) -> Option<String> {
@@ -449,7 +454,7 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
     thread::Builder::new()
         .name("kikimimic-asr".into())
         .spawn(move || {
-            let mut loaded: Option<(String, Box<dyn AsrEngine>)> = None;
+            let mut loaded: Option<Loaded> = None;
             for work in work_rx {
                 let work = match work {
                     AsrWork::Ensure(reply) => {
@@ -467,9 +472,12 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
                     AsrWork::Run(work) => work,
                 };
                 // A session only starts after Ensure succeeded.
-                let Some((_, engine)) = loaded.as_mut() else {
+                let Some(current) = loaded.as_mut() else {
                     continue;
                 };
+                // Read per decode, so a glossary edit applies from the next one.
+                current.listen_for(models.wanted_keywords());
+                let engine = &mut current.engine;
                 let err = |e: anyhow::Error| format!("{e:#}");
                 let answer = match work {
                     AsrIn::Open(lane) => {
@@ -496,17 +504,39 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
     work_tx
 }
 
+/// The loaded recognizer and the keywords it was last given.
+struct Loaded {
+    id: String,
+    engine: Box<dyn AsrEngine>,
+    keywords: Vec<Keyword>,
+}
+
+impl Loaded {
+    fn listen_for(&mut self, keywords: Vec<Keyword>) {
+        if keywords != self.keywords {
+            self.engine.set_keywords(&keywords);
+            self.keywords = keywords;
+        }
+    }
+}
+
 /// The recognizer the settings name, loading or replacing it first.
 fn ensure<'a>(
     models: &Models,
-    loaded: &'a mut Option<(String, Box<dyn AsrEngine>)>,
+    loaded: &'a mut Option<Loaded>,
 ) -> Result<&'a mut Box<dyn AsrEngine>, String> {
     let wanted = models.wanted_asr();
-    if loaded.as_ref().is_none_or(|(id, _)| *id != wanted) {
+    if loaded.as_ref().is_none_or(|l| l.id != wanted) {
         *loaded = None;
-        *loaded = Some((wanted.clone(), models.load_asr(&wanted)?));
+        *loaded = Some(Loaded {
+            id: wanted.clone(),
+            engine: models.load_asr(&wanted)?,
+            keywords: Vec::new(),
+        });
     }
-    Ok(&mut loaded.as_mut().expect("loaded above").1)
+    let current = loaded.as_mut().expect("loaded above");
+    current.listen_for(models.wanted_keywords());
+    Ok(&mut current.engine)
 }
 
 enum MtWork {

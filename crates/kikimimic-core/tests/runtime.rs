@@ -11,6 +11,7 @@ use kikimimic_core::domain::{HostNanos, LaneId, LaneRole};
 use kikimimic_core::engine::{AsrEngine, Diarizer, EngineRegistry, LoadRequest};
 use kikimimic_core::engine::{MtEngine, MtRequest};
 use kikimimic_core::event::{Event, Phase, PostProcessState, TranslationOutcome};
+use kikimimic_core::glossary::{GlossaryEntry, Keyword};
 use kikimimic_core::sim::ScriptedAsr;
 use kikimimic_core::{CaptureBackend, CaptureHandle, Config, Events, Kikimimic, SessionMode};
 
@@ -67,6 +68,39 @@ impl CaptureBackend for Tone {
     }
 }
 
+/// Every keyword list a recognizer was handed, across this binary's tests.
+static KEYWORDS: std::sync::Mutex<Vec<Vec<Keyword>>> = std::sync::Mutex::new(Vec::new());
+
+struct Listening(ScriptedAsr);
+impl AsrEngine for Listening {
+    fn cadence(&self) -> Duration {
+        self.0.cadence()
+    }
+    fn open_lane(&mut self, lane: LaneId) {
+        self.0.open_lane(lane)
+    }
+    fn push(&mut self, lane: LaneId, audio: &kikimimic_core::domain::Pcm16k) {
+        self.0.push(lane, audio)
+    }
+    fn step(
+        &mut self,
+        lane: LaneId,
+        langs: &kikimimic_core::domain::Spoken,
+    ) -> anyhow::Result<Option<kikimimic_core::engine::AsrStep>> {
+        self.0.step(lane, langs)
+    }
+    fn finish(
+        &mut self,
+        lane: LaneId,
+        langs: &kikimimic_core::domain::Spoken,
+    ) -> anyhow::Result<Vec<kikimimic_core::engine::AsrStep>> {
+        self.0.finish(lane, langs)
+    }
+    fn set_keywords(&mut self, keywords: &[Keyword]) {
+        KEYWORDS.lock().unwrap().push(keywords.to_vec());
+    }
+}
+
 struct Upper;
 impl MtEngine for Upper {
     fn translate(&mut self, req: &MtRequest<'_>) -> anyhow::Result<String> {
@@ -104,10 +138,12 @@ fn engines() -> EngineRegistry {
         "scripted",
         |_| Ok(()),
         |_: &LoadRequest<'_>| {
-            Ok(
-                Box::new(ScriptedAsr::new().say(LaneId(0), 100..600, "en", "hello"))
-                    as Box<dyn AsrEngine>,
-            )
+            Ok(Box::new(Listening(ScriptedAsr::new().say(
+                LaneId(0),
+                100..600,
+                "en",
+                "hello",
+            ))) as Box<dyn AsrEngine>)
         },
     );
     r.mt(
@@ -191,6 +227,31 @@ fn a_face_to_face_session_transcribes_translates_and_goes_idle() {
     }
     assert_eq!(translated.as_deref(), Some("HELLO"));
     assert!(idle, "the session went idle after Stop");
+}
+
+#[test]
+fn a_glossary_edited_during_a_session_reaches_the_recognizer_as_keywords() {
+    let (kkm, _events) = start("keywords", true);
+    kkm.start_session(SessionMode::FaceToFace);
+    let mut settings = kkm.settings();
+    settings.glossary.entries.push(GlossaryEntry {
+        wrong: "ジェミナイ".into(),
+        right: "Gemini".into(),
+    });
+    kkm.update_settings(settings).unwrap();
+    let wanted = vec![Keyword {
+        written: "Gemini".into(),
+        readings: vec!["ジェミナイ".into()],
+    }];
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !KEYWORDS.lock().unwrap().contains(&wanted) {
+        assert!(
+            Instant::now() < deadline,
+            "the recognizer never got the keywords"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    kkm.stop_session();
 }
 
 #[test]

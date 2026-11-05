@@ -68,7 +68,8 @@ texts! {
     translate_into: "Translate into", "翻訳先";
     dont_translate: "Don't translate", "翻訳しない";
     mutual: "Also translate the other way (⇄)", "逆方向にも翻訳する（⇄）";
-    speech_model: "Speech recognition model", "音声認識モデル";
+    recognition_model: "Recognition model", "文字起こしモデル";
+    unheard_languages: "This model cannot recognize these spoken languages, so their speech will not be transcribed: ", "このモデルは次の言語を認識できないため、その発話は文字起こしされません: ";
     translation_model: "Translation model", "翻訳モデル";
     none: "None", "なし";
     glossary: "Glossary", "辞書";

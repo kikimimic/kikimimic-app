@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+use crate::domain::{Lang, Spoken};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelKind {
@@ -41,9 +43,21 @@ pub struct ModelEntry {
     pub requires: Vec<String>,
     /// Empty for a model the OS provides: nothing to download, always ready.
     pub files: Vec<FileSpec>,
+    /// The languages a recognizer hears; empty means any.
+    #[serde(default)]
+    pub languages: Vec<Lang>,
     /// Opaque to the core; the engine parses it (e.g. `prompt = "plamo3"`).
     #[serde(default)]
     pub options: toml::Table,
+}
+
+impl ModelEntry {
+    /// The spoken languages this model cannot recognize.
+    pub fn unheard<'a>(&'a self, spoken: &'a Spoken) -> impl Iterator<Item = &'a Lang> {
+        spoken
+            .iter()
+            .filter(|l| !self.languages.is_empty() && !self.languages.contains(l))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -165,6 +179,19 @@ mod tests {
             .get("plamo-3-translate-2b-q4_k_m")
             .unwrap();
         assert!(plamo.license.requires_acceptance);
+    }
+
+    #[test]
+    fn haas_hears_japanese_only_and_whisper_hears_any_language() {
+        let c = Catalog::builtin();
+        let both = Spoken::Two(Lang::parse("ja").unwrap(), Lang::parse("en").unwrap());
+        let unheard = |id: &str| -> Vec<String> {
+            let m = c.get(id).unwrap();
+            m.unheard(&both).map(|l| l.as_str().to_string()).collect()
+        };
+        assert_eq!(unheard("haas-ja-v1.0-q8_0"), ["en"]);
+        assert_eq!(unheard("haas-ja-v1.0-q4_k"), ["en"]);
+        assert!(unheard("whisper-large-v3-turbo-q8_0").is_empty());
     }
 
     #[test]
