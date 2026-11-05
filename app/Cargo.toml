@@ -10,11 +10,15 @@ publish = false
 # time. Never depend on Zed's GPL crates (`ui`, `theme`, ...).
 [dependencies]
 anyhow = "1"
+unicode-segmentation = "1"
 gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
 # runtime_shaders: compile Metal shaders at launch instead of at build time, so
 # building needs only the Command Line Tools, not the full Xcode metal compiler.
 # ponytail: costs a little startup time; precompile in release bundles if it shows.
 gpui_platform = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["font-kit", "runtime_shaders"] }
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["test-support"] }
 
 # Standalone until plan.md Step 6 folds it back into the root workspace.
 [workspace]

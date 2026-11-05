@@ -1,0 +1,8 @@
+Kikimimic
+Copyright (c) 2026 staticWagomU and the Kikimimic contributors
+
+This product includes software adapted from GPUI (https://github.com/zed-industries/zed,
+crates/gpui), Copyright Zed Industries, Inc., licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0):
+
+- app/src/widgets/text_input.rs, from crates/gpui/examples/input.rs (tag v1.27.0)
