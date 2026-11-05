@@ -278,9 +278,9 @@ enum AsrBackend {
 /// than one ASR to choose from (plan.md Step 6).
 fn recognizer(backend: &AsrBackend) -> Box<dyn Recognizer> {
     match backend {
-        AsrBackend::Whisper(models) => {
-            Box::new(kikimimic_asr_whisper::WhisperRecognizer::new(Rc::clone(models)))
-        }
+        AsrBackend::Whisper(models) => Box::new(kikimimic_asr_whisper::WhisperRecognizer::new(
+            Rc::clone(models),
+        )),
         AsrBackend::Soniox {
             api_key,
             spoken,
