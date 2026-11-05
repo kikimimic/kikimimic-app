@@ -66,3 +66,14 @@ title = "PLaMo 3 Translate 2B (Q4_K_M)"
 license = { name = "PLaMo Community License", url = "https://huggingface.co/pfnet/plamo-3-translate-2b/blob/main/LICENSE/en", requires_acceptance = true }
 options = { prompt = "plamo3" }
 files = [{ name = "plamo-3-translate-2b-Q4_K_M.gguf", url = "https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF/resolve/main/plamo-3-translate-2b-Q4_K_M.gguf", sha256 = "2c288ecc7ebfe60c3561726580da3583767f3c41ca3ef5c6825bf6c4cc060787", bytes = 1807192480 }]
+
+[[model]]
+id = "macos-speech"
+kind = "asr"
+engine = "apple-speech"
+title = "macOS Speech Recognition"
+# Part of macOS 26 and later (SpeechAnalyzer): nothing to download here, the
+# OS fetches each language's assets on first use. Listens in the first spoken
+# language only; the app hides it on older macOS.
+license = { name = "Part of macOS", url = "https://www.apple.com/legal/sla/" }
+files = []

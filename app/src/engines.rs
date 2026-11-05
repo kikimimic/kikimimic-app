@@ -1,5 +1,6 @@
 //! The engines this app ships, by the names `models/catalog.toml` uses.
 
+use kikimimic_core::catalog::ModelEntry;
 use kikimimic_core::engine::EngineRegistry;
 
 pub fn registry() -> EngineRegistry {
@@ -14,12 +15,22 @@ pub fn registry() -> EngineRegistry {
         kikimimic_asr_speech::check_options,
         kikimimic_asr_speech::factory,
     );
+    r.asr(
+        "apple-speech",
+        kikimimic_asr_apple::check_options,
+        kikimimic_asr_apple::factory,
+    );
     r.mt(
         "llama",
         kikimimic_mt_llama::check_options,
         kikimimic_mt_llama::factory,
     );
     r
+}
+
+/// Whether `m` can run on this Mac; the others are not offered.
+pub fn runs_here(m: &ModelEntry) -> bool {
+    m.engine != "apple-speech" || kikimimic_asr_apple::is_available()
 }
 
 #[cfg(test)]

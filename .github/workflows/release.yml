@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   macos:
+    # The macOS 26 SDK, for SpeechAnalyzer (kikimimic-asr-apple).
     runs-on: macos-26
     env:
       HAS_SIGNING: ${{ secrets.MACOS_CERTIFICATE != '' }}

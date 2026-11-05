@@ -2683,6 +2683,7 @@ dependencies = [
  "futures",
  "gpui",
  "gpui_platform",
+ "kikimimic-asr-apple",
  "kikimimic-asr-speech",
  "kikimimic-asr-whisper",
  "kikimimic-capture",
@@ -2692,6 +2693,16 @@ dependencies = [
  "sys-locale",
  "unicode-segmentation",
  "ureq",
+]
+
+[[package]]
+name = "kikimimic-asr-apple"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "kikimimic-core",
+ "toml 1.2.0+spec-1.1.0",
 ]
 
 [[package]]

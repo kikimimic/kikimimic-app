@@ -43,7 +43,8 @@ jobs:
       - run: cargo test -p kikimimic-core
 
   # Engines, capture and the GPUI app link Metal builds of whisper.cpp and
-  # llama.cpp and macOS audio APIs, so they build on macOS for now.
+  # llama.cpp and macOS audio APIs, so they build on macOS for now; the macOS 26
+  # SDK, because kikimimic-asr-apple compiles against SpeechAnalyzer.
   macos:
     runs-on: macos-26
     steps:
