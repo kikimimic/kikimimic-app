@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, ScrollHandle, SharedString, Window,
-    div, hsla, prelude::*, px, rgb,
+    AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, MouseButton, MouseDownEvent,
+    Pixels, Point, ScrollHandle, SharedString, Window, anchored, deferred, div, hsla, prelude::*,
+    px, rgb,
 };
 use kikimimic_core::capture::SourceDecision;
 use kikimimic_core::catalog::ModelKind;
@@ -40,6 +41,8 @@ pub struct MainWindow {
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
+    /// Where the session screen's right-click menu is open.
+    menu: Option<Point<Pixels>>,
     ui: Ui,
 }
 
@@ -121,6 +124,7 @@ impl MainWindow {
             wrong,
             right,
             error: None,
+            menu: None,
             ui,
         }
     }
@@ -166,6 +170,13 @@ impl MainWindow {
         cx.notify();
     }
 
+    fn start(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        if self.kkm.settings().clear_on_start {
+            self.state.update(cx, |s, _| s.lines.clear());
+        }
+        self.kkm.start_session(mode);
+    }
+
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
         let tabs = [
@@ -199,7 +210,39 @@ impl MainWindow {
         let state = self.state.read(cx);
         let listening = state.is_listening();
         let busy = matches!(state.phase, Phase::Stopping);
-        let mut col = div().flex().flex_col().size_full().gap_2().p_4();
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .gap_2()
+            .p_4()
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                    this.menu = Some(e.position);
+                    cx.notify();
+                }),
+            );
+        if let Some(at) = self.menu {
+            col = col.child(deferred(
+                anchored().position(at).child(
+                    div()
+                        .bg(rgb(0xffffff))
+                        .shadow_md()
+                        .rounded(px(6.))
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.menu = None;
+                            cx.notify();
+                        }))
+                        .child(button("clear", ui.clear_transcript(), false).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.menu = None;
+                                this.state.update(cx, |s, _| s.lines.clear());
+                            }),
+                        )),
+                ),
+            ));
+        }
         let mut controls = div().flex().gap_2().items_center();
         if listening {
             controls = controls.child(
@@ -207,13 +250,14 @@ impl MainWindow {
                     .on_click(cx.listener(|this, _, _, _| this.kkm.stop_session())),
             );
         } else if !busy {
-            controls = controls
-                .child(button("meeting", ui.record_meeting(), false).on_click(
-                    cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::Meeting)),
-                ))
-                .child(button("face", ui.face_to_face(), false).on_click(
-                    cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::FaceToFace)),
-                ));
+            controls =
+                controls
+                    .child(button("meeting", ui.record_meeting(), false).on_click(
+                        cx.listener(|this, _, _, cx| this.start(SessionMode::Meeting, cx)),
+                    ))
+                    .child(button("face", ui.face_to_face(), false).on_click(
+                        cx.listener(|this, _, _, cx| this.start(SessionMode::FaceToFace, cx)),
+                    ));
         }
         let phase = match &state.phase {
             Phase::Idle => ui.idle().to_string(),
@@ -626,6 +670,21 @@ impl MainWindow {
                     ),
             );
         }
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(ui.tab_session()),
+        );
+        col = col.child(
+            button(
+                "clear-on-start",
+                ui.clear_on_start(),
+                settings.clear_on_start,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
+            })),
+        );
         col.into_any_element()
     }
 }
