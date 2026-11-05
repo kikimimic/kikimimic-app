@@ -18,6 +18,26 @@ requires = ["silero-vad-v5.1.2"]
 files = [{ name = "ggml-large-v3-turbo-q8_0.bin", url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin", sha256 = "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1", bytes = 874188075 }]
 
 [[model]]
+id = "haas-ja-v1.0-q8_0"
+kind = "asr"
+engine = "speech"
+title = "Haas ja v1.0 (Q8_0)"
+license = { name = "Apache-2.0", url = "https://huggingface.co/sakasegawa/Haas-ja-v1.0-GGUF/blob/main/LICENSE" }
+# Japanese only; runs in speech.cpp, so it needs libspeech (bundled by scripts/bundle-mac.sh).
+requires = ["silero-vad-v5.1.2"]
+files = [{ name = "Haas-616M-ja-v1.0-Q8_0.gguf", url = "https://huggingface.co/sakasegawa/Haas-ja-v1.0-GGUF/resolve/main/Haas-616M-ja-v1.0-Q8_0.gguf", sha256 = "cd5f60b2f1c411404b83fca4a65e3ce30a26d9e951b6a346529e65f22758afeb", bytes = 656381472 }]
+
+[[model]]
+id = "haas-ja-v1.0-q4_k"
+kind = "asr"
+engine = "speech"
+title = "Haas ja v1.0 (Q4_K)"
+license = { name = "Apache-2.0", url = "https://huggingface.co/sakasegawa/Haas-ja-v1.0-GGUF/blob/main/LICENSE" }
+# Japanese only; runs in speech.cpp, so it needs libspeech (bundled by scripts/bundle-mac.sh).
+requires = ["silero-vad-v5.1.2"]
+files = [{ name = "Haas-616M-ja-v1.0-Q4_K.gguf", url = "https://huggingface.co/sakasegawa/Haas-ja-v1.0-GGUF/resolve/main/Haas-616M-ja-v1.0-Q4_K.gguf", sha256 = "d24d53f29b75214a933ff482b0de1217e0a800f4118cca39ad6cf03609a89d6f", bytes = 351901216 }]
+
+[[model]]
 id = "silero-vad-v5.1.2"
 kind = "vad"
 engine = "whisper"

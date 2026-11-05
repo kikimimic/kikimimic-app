@@ -9,6 +9,11 @@ pub fn registry() -> EngineRegistry {
         kikimimic_asr_whisper::check_options,
         kikimimic_asr_whisper::factory,
     );
+    r.asr(
+        "speech",
+        kikimimic_asr_speech::check_options,
+        kikimimic_asr_speech::factory,
+    );
     r.mt(
         "llama",
         kikimimic_mt_llama::check_options,
