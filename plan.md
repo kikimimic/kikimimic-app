@@ -112,12 +112,14 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 - Windows（WASAPI loopback + cpal mic、spike S4）、Linux（PipeWire monitor）
 - ネイティブにストリーミングする ASR（v2 Step 6 の Nemotron Streaming / transcribe.cpp）。`AsrEngine` を直接実装する crate として足す
 - 確定前の部分結果の再翻訳、リアルタイムの話者ラベル（発話 ID を最初の部分結果で振る形にしてあるので、入口はある）
+- UI の日本語化（i18n）。今の UI の文言は英語。通知は型付きなので、文言は UI 側だけで差し替えられる
+- 新しい whisper.cpp を使うための自前の -sys crate（S1 と同じ作業。`whisper-rs` が止まっているため）
 
 ## Spike（設計を決めるための計測）
 
 | ID | 確かめること | 失敗したら |
 |---|---|---|
-| S1 | ggml・whisper.cpp・llama.cpp を1つの -sys でビルドし、1つのバイナリで同時に動かせるか（`~/.ai/kikimimic/architect/ggml-findings.md`） | `isolated`（cdylib + dlopen）のまま進める |
+| S1 | ggml・whisper.cpp・llama.cpp を1つの -sys でビルドし、1つのバイナリで同時に動かせるか（`~/.ai/kikimimic/architect/ggml-findings.md`） → **見送り（2026-11-05）**: 上流は whisper.cpp の ggml 0.28 と llama.cpp の 0.29 でほぼ揃っており可能そう。ただし `whisper-rs` は 2026-03 から止まっていて古い whisper.cpp（ggml 0.9.5）のままなので、whisper.cpp と llama.cpp の bindgen・ビルドを自前の -sys で持つことになる。保守の負担に見合うまで isolated のまま | `isolated`（cdylib + dlopen）のまま進める |
 | S2 | 2レーンが続けて話す条件で、ASR と MT を並行に動かす方式と、直列にしてトークン単位で区切る方式の、確定の遅延と1文あたりの翻訳時間（Qwen3-4B と PLaMo 2B） → **暫定**: 並行のままで ASR はほぼ遅くならない。高負荷のマシンで測ったので、空いたマシンで測り直す（[docs/plamo-spike-results.md](docs/plamo-spike-results.md)） | 並行のまま進める（v2 と同じ） |
 | S3 | PFML3 の出力が PFN のリファレンスと一致するか。PLaMo 2B の訳の質 → **済み**: 一致、訳は自然、Qwen の3〜4倍速い | PLaMo は選択肢に加えない |
 | S4 | Windows で、WASAPI loopback と cpal のマイクの時刻を同じ時計に載せられるか | Windows ではマイクの取得も自前で書く |
