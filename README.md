@@ -6,7 +6,7 @@ Real-time multilingual transcription and translation for your desktop, running
 entirely on your machine. Kikimimic listens to two lanes — your microphone and
 the audio your meeting app plays — transcribes each with a local Whisper model,
 translates confirmed sentences with a local LLM, and records both lanes to disk.
-Nothing leaves your computer except the one-time model downloads.
+Nothing leaves your computer except the one-time model downloads and, only if you sign in to Google in Settings, a read of your calendar so a card can offer to record before each meeting. Audio and transcripts never leave.
 
 The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the shared
 `mimi` (耳, "ear") stands for the two lanes.
@@ -66,6 +66,8 @@ Development settings:
 | `KKM_LLM_GPU_LAYERS` | Layers of the translation model on the GPU (`0` for CPU) |
 | `KKM_LANG_PIN_THRESHOLD`, `KKM_VAD_*` | Whisper language detection and VAD tuning |
 | `KKM_UI_LANG` | `en` or `ja`; the UI otherwise follows the OS language |
+| `KKM_CALENDAR_DEMO` | `1` adds a fake meeting starting in a minute, so the meeting card shows without signing in |
+| `KKM_GOOGLE_CLIENT_ID`, `KKM_GOOGLE_CLIENT_SECRET` | Read at **build** time: the Google OAuth client (type Desktop app) for the calendar sign-in. Without them the build still works and Settings says the calendar is unavailable |
 
 ## Recordings
 

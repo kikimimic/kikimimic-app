@@ -16,6 +16,7 @@ use kikimimic_core::library::{self, Recording};
 use kikimimic_core::store::ModelState;
 use kikimimic_core::{Kikimimic, SessionMode};
 
+use crate::calendar::{Calendar, Status};
 use crate::downloads::{Downloads, Progress};
 use crate::i18n::Ui;
 use crate::state::{AppState, SourceMessage, Translation};
@@ -36,6 +37,7 @@ pub struct MainWindow {
     tab: Tab,
     scroll: ScrollHandle,
     downloads: Downloads,
+    calendar: Entity<Calendar>,
     recordings: Vec<Recording>,
     open_recording: Option<(std::path::PathBuf, library::Session)>,
     wrong: Entity<TextInput>,
@@ -96,7 +98,13 @@ fn notice_text(ui: Ui, n: &Notice) -> String {
 }
 
 impl MainWindow {
-    pub fn new(kkm: Kikimimic, state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        kkm: Kikimimic,
+        state: Entity<AppState>,
+        calendar: Entity<Calendar>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        cx.observe(&calendar, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |this: &mut Self, state, cx| {
             this.scroll.scroll_to_bottom();
             // Labelling finished for the open recording: show the split lines.
@@ -119,6 +127,7 @@ impl MainWindow {
             tab: Tab::Session,
             scroll: ScrollHandle::new(),
             downloads: Downloads::default(),
+            calendar,
             recordings: Vec::new(),
             open_recording: None,
             wrong,
@@ -733,7 +742,80 @@ impl MainWindow {
                 this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
             })),
         );
-        col.into_any_element()
+        col.child(self.calendar_section(cx)).into_any_element()
+    }
+
+    fn calendar_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = self.ui;
+        let calendar = self.calendar.read(cx);
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(ui.google_calendar()),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(ui.calendar_description()),
+            );
+        let sign_in = |label: &'static str| {
+            button("sign-in", label, false).on_click(
+                cx.listener(|this, _, _, cx| this.calendar.update(cx, |c, cx| c.sign_in(cx))),
+            )
+        };
+        let status = match &calendar.status {
+            Status::Unavailable => div().text_color(gray()).child(ui.calendar_unavailable()),
+            Status::SignedOut => div().flex().child(sign_in(ui.sign_in_google())),
+            Status::NeedsSignIn { .. } => div()
+                .flex()
+                .gap_2()
+                .items_center()
+                .child(div().text_color(rgb(0x9a6700)).child(ui.needs_sign_in()))
+                .child(sign_in(ui.sign_in_google())),
+            Status::SigningIn => div()
+                .flex()
+                .gap_2()
+                .items_center()
+                .child(ui.signing_in())
+                .child(
+                    button("cancel-sign-in", ui.cancel(), false).on_click(cx.listener(
+                        |this, _, _, cx| this.calendar.update(cx, |c, cx| c.cancel_sign_in(cx)),
+                    )),
+                ),
+            Status::SignedIn { email } => {
+                let mut row = div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(ui.signed_in_as(email))
+                    .child(
+                        button("sign-out", ui.sign_out(), false).on_click(cx.listener(
+                            |this, _, _, cx| this.calendar.update(cx, |c, cx| c.sign_out(cx)),
+                        )),
+                    );
+                if let Some(at) = calendar.last_read {
+                    row = row.child(
+                        div()
+                            .text_color(gray())
+                            .child(ui.last_read(&at.format("%H:%M").to_string())),
+                    );
+                }
+                row
+            }
+        };
+        col = col.child(status);
+        if let Some(error) = &calendar.last_error {
+            let text = ui.google_error(error);
+            if !text.is_empty() {
+                col = col.child(div().text_color(rgb(0xcf222e)).child(text));
+            }
+        }
+        col
     }
 }
 

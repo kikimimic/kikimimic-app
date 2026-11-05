@@ -54,6 +54,7 @@ speech_lib="$(find "$speech_dir" -name "$speech_dylib" -type f | head -1)"
 mkdir -p target/release && cp "$speech_lib" "target/release/$speech_dylib"
 
 echo "==> app"
+# KKM_GOOGLE_CLIENT_ID and KKM_GOOGLE_CLIENT_SECRET are read from the environment at build time.
 cargo build --release -p kikimimic
 
 app="target/bundle/Kikimimic.app"

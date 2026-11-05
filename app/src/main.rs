@@ -1,5 +1,8 @@
+mod calendar;
+mod cutin;
 mod downloads;
 mod engines;
+mod google;
 mod i18n;
 mod paths;
 mod state;
@@ -11,6 +14,7 @@ use gpui::{App, AppContext, Bounds, Entity, WindowBounds, WindowOptions, px, siz
 use kikimimic_core::catalog::Catalog;
 use kikimimic_core::{Config, Events, Kikimimic};
 
+use calendar::Calendar;
 use state::AppState;
 use widgets::text_input;
 use window::MainWindow;
@@ -64,14 +68,20 @@ fn main() {
         let state = cx.new(|_| AppState::default());
         forward(events, state.clone(), cx);
         let bounds = Bounds::centered(None, size(px(960.), px(720.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |_, cx| cx.new(|cx| MainWindow::new(kkm, state, cx)),
-        )
-        .expect("open the main window");
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        let main = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    ..Default::default()
+                },
+                {
+                    let calendar = calendar.clone();
+                    |_, cx| cx.new(|cx| MainWindow::new(kkm, state, calendar, cx))
+                },
+            )
+            .expect("open the main window");
+        calendar.update(cx, |c, _| c.main_window = Some(main.into()));
         cx.activate(true);
     });
 }
