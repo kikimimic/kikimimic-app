@@ -1,0 +1,6 @@
+# Matches the pinned Zed tag's toolchain: GPUI (app/) uses std APIs newer than
+# what nixpkgs ships. Bump together with the Zed tag in app/Cargo.toml.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy", "rust-analyzer"]

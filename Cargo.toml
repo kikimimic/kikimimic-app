@@ -1,5 +1,8 @@
 [workspace]
 resolver = "2"
+# app/ is its own workspace until the v2 Tauri app is deleted (plan.md Step 6):
+# Tauri and GPUI cannot agree on one lockfile.
+exclude = ["app"]
 members = [
     "crates/kikimimic-core",
     "crates/kikimimic-mt-llama",

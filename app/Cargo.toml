@@ -1,0 +1,27 @@
+[package]
+name = "kikimimic-app"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# GPUI comes from Zed's monorepo at a pinned release tag: crates.io stopped
+# getting releases at 0.2.2 (ADR-120002). Bump the tag on purpose, one PR at a
+# time. Never depend on Zed's GPL crates (`ui`, `theme`, ...).
+[dependencies]
+anyhow = "1"
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
+# runtime_shaders: compile Metal shaders at launch instead of at build time, so
+# building needs only the Command Line Tools, not the full Xcode metal compiler.
+# ponytail: costs a little startup time; precompile in release bundles if it shows.
+gpui_platform = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["font-kit", "runtime_shaders"] }
+
+# Standalone until plan.md Step 6 folds it back into the root workspace.
+[workspace]
+
+# GPUI is a git dependency, so Zed's own [patch.crates-io] does not apply to it.
+# Mirror the entries GPUI's dependency tree needs, at the revisions the pinned
+# Zed tag uses (root Cargo.toml of zed-industries/zed at that tag).
+[patch.crates-io]
+async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
