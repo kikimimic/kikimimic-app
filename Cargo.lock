@@ -2688,6 +2688,7 @@ dependencies = [
  "kikimimic-core",
  "kikimimic-diarize-nemotron",
  "kikimimic-mt-llama",
+ "sys-locale",
  "unicode-segmentation",
  "ureq",
 ]

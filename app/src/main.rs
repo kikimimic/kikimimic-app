@@ -1,5 +1,6 @@
 mod downloads;
 mod engines;
+mod i18n;
 mod paths;
 mod state;
 mod widgets;

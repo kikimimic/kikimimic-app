@@ -31,6 +31,12 @@ pub struct Line {
     pub translation: Translation,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum SourceMessage {
+    Switched(String),
+    Failed(String),
+}
+
 /// "Follow the new output device?"
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceQuestion {
@@ -47,7 +53,7 @@ pub struct AppState {
     pub recording_dir: Option<PathBuf>,
     pub question: Option<SourceQuestion>,
     /// The last thing a source reported (switched, or failed to).
-    pub source_message: Option<String>,
+    pub source_message: Option<SourceMessage>,
     /// Speaker labelling of a recording, and how far it got.
     pub post_process: Option<(PathBuf, PostProcessState)>,
 }
@@ -124,11 +130,11 @@ impl AppState {
             Event::Source(SourceEvent::OutputSwitchWithdrawn) => self.question = None,
             Event::Source(SourceEvent::OutputSwitched { name }) => {
                 self.question = None;
-                self.source_message = Some(format!("Now capturing {name}"));
+                self.source_message = Some(SourceMessage::Switched(name));
             }
             Event::Source(SourceEvent::OutputSwitchFailed { reason }) => {
                 self.question = None;
-                self.source_message = Some(reason);
+                self.source_message = Some(SourceMessage::Failed(reason));
             }
             Event::PostProcess { recording, state } => self.post_process = Some((recording, state)),
         }
@@ -305,10 +311,9 @@ mod tests {
         s.apply(Event::Source(SourceEvent::OutputSwitched {
             name: "AirPods".into(),
         }));
-        assert!(
-            s.source_message
-                .as_deref()
-                .is_some_and(|m| m.contains("AirPods"))
+        assert_eq!(
+            s.source_message,
+            Some(SourceMessage::Switched("AirPods".into()))
         );
     }
 }

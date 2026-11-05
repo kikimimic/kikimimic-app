@@ -51,6 +51,7 @@ cargo run -p kikimimic                # 開発
 | `KKM_TRANSLATE_DYLIB` | このビルドの翻訳バックエンドを使う |
 | `KKM_LLM_GPU_LAYERS` | 翻訳モデルを GPU に載せる層数（`0` で CPU） |
 | `KKM_LANG_PIN_THRESHOLD`、`KKM_VAD_*` | Whisper の言語判定と VAD の調整 |
+| `KKM_UI_LANG` | `en` か `ja`。指定しなければ OS の言語に合わせる |
 
 ## 録音
 

@@ -63,6 +63,7 @@ Development settings:
 | `KKM_TRANSLATE_DYLIB` | Use this build of the translation backend |
 | `KKM_LLM_GPU_LAYERS` | Layers of the translation model on the GPU (`0` for CPU) |
 | `KKM_LANG_PIN_THRESHOLD`, `KKM_VAD_*` | Whisper language detection and VAD tuning |
+| `KKM_UI_LANG` | `en` or `ja`; the UI otherwise follows the OS language |
 
 ## Recordings
 

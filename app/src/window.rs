@@ -16,7 +16,8 @@ use kikimimic_core::store::ModelState;
 use kikimimic_core::{Kikimimic, SessionMode};
 
 use crate::downloads::{Downloads, Progress};
-use crate::state::{AppState, Translation};
+use crate::i18n::Ui;
+use crate::state::{AppState, SourceMessage, Translation};
 use crate::widgets::text_input::TextInput;
 use crate::widgets::transcript_line;
 
@@ -39,6 +40,7 @@ pub struct MainWindow {
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
+    ui: Ui,
 }
 
 fn gray() -> Hsla {
@@ -77,20 +79,16 @@ fn mm_ss(ms: u64) -> String {
     format!("{:02}:{:02}", s / 60, s % 60)
 }
 
-fn notice_text(n: &Notice) -> String {
+fn notice_text(ui: Ui, n: &Notice) -> String {
     match n {
-        Notice::SourceUnavailable { role, reason } => format!("{role:?} unavailable: {reason}"),
-        Notice::SystemAudioSilent { .. } => "System audio is silent. Allow Kikimimic in System \
-            Settings > Privacy & Security > Screen & System Audio Recording."
-            .into(),
-        Notice::RecordingOff { reason } => format!("Recording stopped: {reason}"),
-        Notice::Overrun { lane, dropped_ms } => {
-            format!("{}: {dropped_ms} ms of audio dropped", lane.as_str())
+        Notice::SourceUnavailable { role, reason } => {
+            ui.source_unavailable(&format!("{role:?}"), reason)
         }
-        Notice::DecodeFailed { lane, reason } => {
-            format!("{}: recognition failed: {reason}", lane.as_str())
-        }
-        Notice::TranslationUnavailable { reason } => format!("Translation unavailable: {reason}"),
+        Notice::SystemAudioSilent { .. } => ui.system_audio_silent().into(),
+        Notice::RecordingOff { reason } => ui.recording_stopped(reason),
+        Notice::Overrun { lane, dropped_ms } => ui.overrun(lane.as_str(), *dropped_ms),
+        Notice::DecodeFailed { lane, reason } => ui.decode_failed(lane.as_str(), reason),
+        Notice::TranslationUnavailable { reason } => ui.translation_unavailable(reason),
     }
 }
 
@@ -109,8 +107,9 @@ impl MainWindow {
             cx.notify();
         })
         .detach();
-        let wrong = cx.new(|cx| TextInput::new("Misrecognized as…", cx));
-        let right = cx.new(|cx| TextInput::new("Correct spelling", cx));
+        let ui = Ui::detect();
+        let wrong = cx.new(|cx| TextInput::new(ui.misrecognized_as(), cx));
+        let right = cx.new(|cx| TextInput::new(ui.correct_spelling(), cx));
         Self {
             kkm,
             state,
@@ -122,6 +121,7 @@ impl MainWindow {
             wrong,
             right,
             error: None,
+            ui,
         }
     }
 
@@ -167,11 +167,12 @@ impl MainWindow {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = self.ui;
         let tabs = [
-            (Tab::Session, "Session"),
-            (Tab::Recordings, "Recordings"),
-            (Tab::Models, "Models"),
-            (Tab::Settings, "Settings"),
+            (Tab::Session, "session", ui.tab_session()),
+            (Tab::Recordings, "recordings", ui.tab_recordings()),
+            (Tab::Models, "models", ui.tab_models()),
+            (Tab::Settings, "settings", ui.tab_settings()),
         ];
         div()
             .flex()
@@ -187,13 +188,14 @@ impl MainWindow {
                     .mr_4()
                     .child("Kikimimic"),
             )
-            .children(tabs.into_iter().map(|(tab, label)| {
-                button(label, label, self.tab == tab)
+            .children(tabs.into_iter().map(|(tab, id, label)| {
+                button(id, label, self.tab == tab)
                     .on_click(cx.listener(move |this, _, _, cx| this.select(tab, cx)))
             }))
     }
 
     fn session(&self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = self.ui;
         let state = self.state.read(cx);
         let listening = state.is_listening();
         let busy = matches!(state.phase, Phase::Stopping);
@@ -201,23 +203,23 @@ impl MainWindow {
         let mut controls = div().flex().gap_2().items_center();
         if listening {
             controls = controls.child(
-                button("stop", "■ Stop", true)
+                button("stop", ui.stop(), true)
                     .on_click(cx.listener(|this, _, _, _| this.kkm.stop_session())),
             );
         } else if !busy {
             controls = controls
-                .child(button("meeting", "● Record meeting", false).on_click(
+                .child(button("meeting", ui.record_meeting(), false).on_click(
                     cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::Meeting)),
                 ))
-                .child(button("face", "Face to face", false).on_click(
+                .child(button("face", ui.face_to_face(), false).on_click(
                     cx.listener(|this, _, _, _| this.kkm.start_session(SessionMode::FaceToFace)),
                 ));
         }
         let phase = match &state.phase {
-            Phase::Idle => "Idle".to_string(),
-            Phase::Listening => "Listening".to_string(),
-            Phase::Stopping => "Finishing translations…".to_string(),
-            Phase::Error { message } => format!("Error: {message}"),
+            Phase::Idle => ui.idle().to_string(),
+            Phase::Listening => ui.listening().to_string(),
+            Phase::Stopping => ui.finishing().to_string(),
+            Phase::Error { message } => ui.error(message),
         };
         controls = controls.child(div().text_color(gray()).child(phase));
         col = col.child(controls);
@@ -231,17 +233,14 @@ impl MainWindow {
                     .items_center()
                     .p_2()
                     .bg(rgb(0xfff8c5))
-                    .child(format!(
-                        "Output changed to {} (capturing {}). Follow it?",
-                        q.detected, q.capturing
-                    ))
-                    .child(button("follow", "Follow", false).on_click(cx.listener(
+                    .child(ui.output_changed(&q.detected, &q.capturing))
+                    .child(button("follow", ui.follow(), false).on_click(cx.listener(
                         move |this, _, _, _| {
                             this.kkm
                                 .decide_source(SourceDecision::Follow { uid: uid.clone() })
                         },
                     )))
-                    .child(button("stay", "Stay", false).on_click(cx.listener(
+                    .child(button("stay", ui.stay(), false).on_click(cx.listener(
                         move |this, _, _, _| {
                             this.kkm
                                 .decide_source(SourceDecision::Stay { uid: uid2.clone() })
@@ -250,10 +249,14 @@ impl MainWindow {
             );
         }
         for n in &state.notices {
-            col = col.child(div().text_color(rgb(0x9a6700)).child(notice_text(n)));
+            col = col.child(div().text_color(rgb(0x9a6700)).child(notice_text(ui, n)));
         }
         if let Some(m) = &state.source_message {
-            col = col.child(div().text_color(gray()).child(m.clone()));
+            let text = match m {
+                SourceMessage::Switched(name) => ui.now_capturing(name),
+                SourceMessage::Failed(reason) => reason.clone(),
+            };
+            col = col.child(div().text_color(gray()).child(text));
         }
         let lines = state.lines.iter().map(|l| {
             let mut row = div().flex().flex_col().gap_1().py_1();
@@ -273,13 +276,12 @@ impl MainWindow {
             row = row.child(transcript_line::render(&l.committed, &l.volatile, gray()));
             let translation = match &l.translation {
                 Translation::None => None,
-                Translation::Pending => Some(("Translating…".to_string(), gray())),
+                Translation::Pending => Some((ui.translating().to_string(), gray())),
                 Translation::Text(t) => Some((t.clone(), Hsla::from(rgb(0x0969da)))),
                 Translation::Dropped => None,
-                Translation::Failed(m) => Some((
-                    format!("Translation failed: {m}"),
-                    Hsla::from(rgb(0xcf222e)),
-                )),
+                Translation::Failed(m) => {
+                    Some((ui.translation_failed(m), Hsla::from(rgb(0xcf222e))))
+                }
             };
             if let Some((text, color)) = translation {
                 row = row.child(div().text_color(color).child(text));
@@ -300,6 +302,7 @@ impl MainWindow {
     }
 
     fn recordings_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = self.ui;
         let mut col = div()
             .id("recordings")
             .flex()
@@ -315,7 +318,7 @@ impl MainWindow {
             };
             let dir = dir.clone();
             let mut bar = div().flex().gap_2().items_center().child(
-                button("back", "← All recordings", false).on_click(cx.listener(
+                button("back", ui.all_recordings(), false).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.open_recording = None;
                         cx.notify();
@@ -324,16 +327,14 @@ impl MainWindow {
             );
             bar =
                 match labelling {
-                    Some(PostProcessState::Running) => bar.child(
-                        div()
-                            .text_color(gray())
-                            .child("Identifying speakers… (the first run downloads the model)"),
-                    ),
+                    Some(PostProcessState::Running) => {
+                        bar.child(div().text_color(gray()).child(ui.identifying()))
+                    }
                     other => {
                         if let Some(PostProcessState::Failed { message }) = other {
                             bar = bar.child(div().text_color(rgb(0xcf222e)).child(message));
                         }
-                        bar.child(button("diarize", "Identify speakers", false).on_click(
+                        bar.child(button("diarize", ui.identify_speakers(), false).on_click(
                             cx.listener(move |this, _, _, _| this.kkm.diarize(dir.clone())),
                         ))
                     }
@@ -359,42 +360,41 @@ impl MainWindow {
         }
         if self.recordings.is_empty() {
             return col
-                .child(div().text_color(gray()).child("No recordings yet."))
+                .child(div().text_color(gray()).child(ui.no_recordings()))
                 .into_any_element();
         }
         for (i, r) in self.recordings.iter().enumerate() {
             let dir = r.dir.clone();
             let title = r.title.clone().unwrap_or_else(|| r.name.clone());
-            col = col.child(
-                div()
-                    .id(("recording", i))
-                    .flex()
-                    .flex_col()
-                    .p_2()
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgb(0xf6f8fa)))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                    .child(div().text_size(px(12.)).text_color(gray()).child(format!(
-                        "{} · {} lines · {}",
-                        mm_ss(r.duration_ms),
-                        r.utterances,
-                        r.snippet
-                    )))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let path = std::path::PathBuf::from(&dir);
-                        match library::read(&path) {
-                            Ok(s) => this.open_recording = Some((path, s)),
-                            Err(e) => this.error = Some(format!("{e:#}")),
-                        }
-                        cx.notify();
-                    })),
-            );
+            col =
+                col.child(
+                    div()
+                        .id(("recording", i))
+                        .flex()
+                        .flex_col()
+                        .p_2()
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0xf6f8fa)))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                        .child(div().text_size(px(12.)).text_color(gray()).child(
+                            ui.recording_summary(&mm_ss(r.duration_ms), r.utterances, &r.snippet),
+                        ))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let path = std::path::PathBuf::from(&dir);
+                            match library::read(&path) {
+                                Ok(s) => this.open_recording = Some((path, s)),
+                                Err(e) => this.error = Some(format!("{e:#}")),
+                            }
+                            cx.notify();
+                        })),
+                );
         }
         col.into_any_element()
     }
 
     fn models_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = self.ui;
         let store = self.kkm.models().clone();
         let settings = self.kkm.settings();
         let mut col = div()
@@ -425,7 +425,7 @@ impl MainWindow {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
                         "{}{}",
                         m.title,
-                        if in_use { "  (in use)" } else { "" }
+                        if in_use { ui.in_use() } else { "" }
                     )))
                     .child(div().text_size(px(12.)).text_color(gray()).child(format!(
                         "{:?} · {:.1} GB · {}",
@@ -435,48 +435,49 @@ impl MainWindow {
                     ))),
             );
             let progress = self.downloads.get(&m.id);
-            row = match (state, progress) {
-                (_, Some(Progress::Running { received, total })) => row.child(format!(
-                    "Downloading {:.0}%",
-                    if total == 0 {
-                        0.0
-                    } else {
-                        received as f64 * 100.0 / total as f64
+            row =
+                match (state, progress) {
+                    (_, Some(Progress::Running { received, total })) => {
+                        row.child(ui.downloading(if total == 0 {
+                            0.0
+                        } else {
+                            received as f64 * 100.0 / total as f64
+                        }))
                     }
-                )),
-                (ModelState::Ready, _) => row.child(div().text_color(rgb(0x1a7f37)).child("Ready")),
-                (ModelState::NeedsLicense, _) => {
-                    let url = m.license.url.clone().unwrap_or_default();
-                    row.child(div().text_size(px(12.)).text_color(gray()).child(url))
-                        .child(button(("accept", i), "Accept license", false).on_click(
+                    (ModelState::Ready, _) => {
+                        row.child(div().text_color(rgb(0x1a7f37)).child(ui.ready()))
+                    }
+                    (ModelState::NeedsLicense, _) => {
+                        let url = m.license.url.clone().unwrap_or_default();
+                        row.child(div().text_size(px(12.)).text_color(gray()).child(url))
+                            .child(button(("accept", i), ui.accept_license(), false).on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.error = this.kkm.models().accept_license(&id).err();
+                                    cx.notify();
+                                }),
+                            ))
+                    }
+                    (ModelState::Missing { .. }, failed) => {
+                        if let Some(Progress::Failed(e)) = failed {
+                            row = row.child(div().text_color(rgb(0xcf222e)).child(e));
+                        }
+                        row.child(button(("download", i), ui.download(), false).on_click(
                             cx.listener(move |this, _, _, cx| {
-                                this.error = this.kkm.models().accept_license(&id).err();
-                                cx.notify();
-                            }),
-                        ))
-                }
-                (ModelState::Missing { .. }, failed) => {
-                    if let Some(Progress::Failed(e)) = failed {
-                        row = row.child(div().text_color(rgb(0xcf222e)).child(e));
-                    }
-                    row.child(
-                        button(("download", i), "Download", false).on_click(cx.listener(
-                            move |this, _, _, cx| {
                                 if this.downloads.start(this.kkm.models().clone(), id.clone()) {
                                     this.watch_downloads(cx);
                                 }
                                 cx.notify();
-                            },
-                        )),
-                    )
-                }
-            };
+                            }),
+                        ))
+                    }
+                };
             col = col.child(row);
         }
         col.into_any_element()
     }
 
     fn settings_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = self.ui;
         let settings = self.kkm.settings();
         let policy = settings.languages.clone();
         let spoken: Vec<String> = policy
@@ -496,7 +497,7 @@ impl MainWindow {
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Spoken languages (up to two)"),
+                .child(ui.spoken_languages()),
         );
         let mut row = div().flex().gap_2().flex_wrap();
         for (code, _, name) in kikimimic_core::language::NAMES {
@@ -515,10 +516,10 @@ impl MainWindow {
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Translate into"),
+                .child(ui.translate_into()),
         );
         let mut row = div().flex().gap_2().flex_wrap().child(
-            button("target-none", "Don't translate", policy.target.is_none()).on_click(
+            button("target-none", ui.dont_translate(), policy.target.is_none()).on_click(
                 cx.listener(|this, _, _, cx| {
                     this.update_settings(|s| s.languages.target = None, cx)
                 }),
@@ -535,21 +536,23 @@ impl MainWindow {
                 ),
             );
         }
-        col = col.child(row).child(
-            button("mutual", "Also translate the other way (⇄)", policy.mutual).on_click(
-                cx.listener(|this, _, _, cx| {
-                    this.update_settings(|s| s.languages.mutual = !s.languages.mutual, cx)
-                }),
-            ),
-        );
+        col = col
+            .child(row)
+            .child(
+                button("mutual", ui.mutual(), policy.mutual).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.update_settings(|s| s.languages.mutual = !s.languages.mutual, cx)
+                    },
+                )),
+            );
 
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Translation model"),
+                .child(ui.translation_model()),
         );
         let mut row = div().flex().gap_2().flex_wrap().child(
-            button("mt-none", "None", settings.mt_model.is_none()).on_click(
+            button("mt-none", ui.none(), settings.mt_model.is_none()).on_click(
                 cx.listener(|this, _, _, cx| this.update_settings(|s| s.mt_model = None, cx)),
             ),
         );
@@ -569,11 +572,12 @@ impl MainWindow {
         col = col.child(row);
 
         col = col
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Glossary"))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(ui.glossary()))
             .child(
-                div().text_size(px(12.)).text_color(gray()).child(
-                    "Fixes what the recognizer gets wrong, and keeps the right spelling in translations.",
-                ),
+                div()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(ui.glossary_help()),
             )
             .child(
                 div()
@@ -583,16 +587,21 @@ impl MainWindow {
                     .child(div().w(px(220.)).child(self.wrong.clone()))
                     .child("→")
                     .child(div().w(px(220.)).child(self.right.clone()))
-                    .child(button("add", "Add", false).on_click(cx.listener(|this, _, _, cx| {
-                        let wrong = this.wrong.read(cx).text().trim().to_string();
-                        let right = this.right.read(cx).text().trim().to_string();
-                        if wrong.is_empty() || right.is_empty() {
-                            return;
-                        }
-                        this.update_settings(|s| s.glossary.entries.push(GlossaryEntry { wrong, right }), cx);
-                        this.wrong.update(cx, |i, cx| i.clear(cx));
-                        this.right.update(cx, |i, cx| i.clear(cx));
-                    }))),
+                    .child(button("add", ui.add(), false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            let wrong = this.wrong.read(cx).text().trim().to_string();
+                            let right = this.right.read(cx).text().trim().to_string();
+                            if wrong.is_empty() || right.is_empty() {
+                                return;
+                            }
+                            this.update_settings(
+                                |s| s.glossary.entries.push(GlossaryEntry { wrong, right }),
+                                cx,
+                            );
+                            this.wrong.update(cx, |i, cx| i.clear(cx));
+                            this.right.update(cx, |i, cx| i.clear(cx));
+                        },
+                    ))),
             );
         for (i, e) in settings.glossary.entries.iter().enumerate() {
             col = col.child(
@@ -601,18 +610,20 @@ impl MainWindow {
                     .gap_2()
                     .items_center()
                     .child(format!("{} → {}", e.wrong, e.right))
-                    .child(button(("remove", i), "Remove", false).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.update_settings(
-                                |s| {
-                                    if i < s.glossary.entries.len() {
-                                        s.glossary.entries.remove(i);
-                                    }
-                                },
-                                cx,
-                            )
-                        },
-                    ))),
+                    .child(
+                        button(("remove", i), ui.remove(), false).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.update_settings(
+                                    |s| {
+                                        if i < s.glossary.entries.len() {
+                                            s.glossary.entries.remove(i);
+                                        }
+                                    },
+                                    cx,
+                                )
+                            },
+                        )),
+                    ),
             );
         }
         col.into_any_element()

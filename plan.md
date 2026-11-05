@@ -87,6 +87,8 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 - [ ] 実機での確認: 2レーンの会議、言語変更、Stop、録音一覧、過去の録音の読み戻し（`.app` で起動）
 - [ ] 既定の出力デバイスの切り替えへの追従（v2 で実機確認が残っていた項目）
 
+- [x] UI の日本語化（`app/src/i18n.rs`。OS の優先言語で英語と日本語を切り替え、`KKM_UI_LANG` で上書き）
+
 ### Step 7: 話者分離
 
 - [x] `kikimimic-diarize-nemotron`（`Diarizer`）と `Kikimimic::diarize`（専用スレッドで話者分離し、セッションの ASR/MT スレッドを借りて分け直す）。実物の Nemotron で 6.7 分の録音から2人・177区間を検出
@@ -112,7 +114,6 @@ TDD（Red → Green → Refactor）で進めます。構造の変更と振る舞
 - Windows（WASAPI loopback + cpal mic、spike S4）、Linux（PipeWire monitor）
 - ネイティブにストリーミングする ASR（v2 Step 6 の Nemotron Streaming / transcribe.cpp）。`AsrEngine` を直接実装する crate として足す
 - 確定前の部分結果の再翻訳、リアルタイムの話者ラベル（発話 ID を最初の部分結果で振る形にしてあるので、入口はある）
-- UI の日本語化（i18n）。今の UI の文言は英語。通知は型付きなので、文言は UI 側だけで差し替えられる
 - 新しい whisper.cpp を使うための自前の -sys crate（S1 と同じ作業。`whisper-rs` が止まっているため）
 
 ## Spike（設計を決めるための計測）
