@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  # The headless core has no device, GPU or network dependency, so it must
+  # build and pass on every platform we intend to ship (ADR-120001).
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p kikimimic-core --all-targets
+      - run: cargo test -p kikimimic-core
+
+  # Engines and the app link whisper.cpp / llama.cpp with Metal, so they only
+  # build on macOS for now.
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # The app's build script expects the cdylib in target/release
+      # (ADR-153805) and a built frontend directory.
+      - run: cargo build --release -p kikimimic-mt-llama-dylib
+      - run: mkdir -p build
+      - run: cargo clippy -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic-mt-llama-dylib -p kikimimic --all-targets
+      - run: cargo test -p kikimimic-asr-whisper -p kikimimic-mt-llama -p kikimimic
