@@ -75,6 +75,8 @@ texts! {
     glossary_help: "Fixes what the recognizer gets wrong, and keeps the right spelling in translations.", "誤認識を正しい表記に直し、翻訳でもその表記を保ちます。";
     misrecognized_as: "Misrecognized as…", "誤認識された表記";
     correct_spelling: "Correct spelling", "正しい表記";
+    clear_transcript: "Clear", "クリア";
+    clear_on_start: "Clear the screen when a recording starts (otherwise right-click to clear)", "録音開始時に画面をクリアする（オフのときは右クリックでクリア）";
     add: "Add", "追加";
     remove: "Remove", "削除";
     system_audio_silent: "System audio is silent. Allow Kikimimic in System Settings > Privacy & Security > Screen & System Audio Recording.", "システム音声が無音です。システム設定 > プライバシーとセキュリティ > 画面とシステムオーディオ録音 で Kikimimic を許可してください。";
