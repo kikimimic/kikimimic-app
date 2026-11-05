@@ -46,7 +46,7 @@ cargo run -p kikimimic                # 開発
 
 | 変数 | 効果 |
 |---|---|
-| `KKM_MODELS_DIR` | モデルファイルをここでも探す（既存の `models/` など） |
+| `KKM_MODELS_DIR` | モデルファイルをここでも探す（既存の `models/` など）。`:` 区切りで複数指定できる |
 | `KKM_RECORD_DIR` | 録音の保存先（既定は `~/Music/kikimimic`） |
 | `KKM_TRANSLATE_DYLIB` | このビルドの翻訳バックエンドを使う |
 | `KKM_LLM_GPU_LAYERS` | 翻訳モデルを GPU に載せる層数（`0` で CPU） |

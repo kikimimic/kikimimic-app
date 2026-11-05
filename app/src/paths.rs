@@ -28,12 +28,11 @@ pub fn recordings_dir() -> PathBuf {
 }
 
 /// Extra places to find model files, e.g. a checkout's `models/`
-/// (`KKM_MODELS_DIR`).
+/// (`KKM_MODELS_DIR`, several separated like PATH).
 pub fn extra_model_dirs() -> Vec<PathBuf> {
     std::env::var_os("KKM_MODELS_DIR")
-        .map(PathBuf::from)
-        .into_iter()
-        .collect()
+        .map(|v| std::env::split_paths(&v).collect())
+        .unwrap_or_default()
 }
 
 /// A recording directory name for now, in the user's local time.
