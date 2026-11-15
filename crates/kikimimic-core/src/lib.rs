@@ -13,6 +13,8 @@ pub mod event;
 pub mod glossary;
 pub mod language;
 pub mod library;
+pub mod metrics;
+
 mod local_agreement;
 mod mix;
 pub mod postprocess;

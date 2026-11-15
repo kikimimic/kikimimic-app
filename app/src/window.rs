@@ -393,6 +393,19 @@ impl MainWindow {
                     }
                 };
             col = col.child(bar);
+            let metrics = kikimimic_core::metrics::calculate(&session.lines);
+            for (name, m) in [("Mic", &metrics.mic), ("Speaker", &metrics.speaker)] {
+                col = col.child(div().text_size(px(12.)).child(format!(
+                    "{name}: {:.1}% · longest {:.1}s · {:.1} chars/min · questions {}",
+                    m.share * 100.0,
+                    m.longest_ms as f64 / 1000.0,
+                    m.characters_per_minute,
+                    m.questions,
+                )));
+            }
+            col = col.child(div().text_size(px(12.)).child(format!(
+                "Overlapping utterance pairs: {} (interruptions valid only with headphones / 割り込みはヘッドホン使用時のみ有効)", metrics.overlaps
+            )));
             for line in &session.lines {
                 let mut row = div().flex().flex_col().py_1().child(
                     div()
