@@ -77,6 +77,7 @@ texts! {
     misrecognized_as: "Misrecognized as…", "誤認識された表記";
     correct_spelling: "Correct spelling", "正しい表記";
     clear_transcript: "Clear", "クリア";
+    save_face_to_face: "Save face-to-face audio and transcript", "対面の音声と文字起こしを保存";
     clear_on_start: "Clear the screen when a recording starts (otherwise right-click to clear)", "録音開始時に画面をクリアする（オフのときは右クリックでクリア）";
     add: "Add", "追加";
     remove: "Remove", "削除";

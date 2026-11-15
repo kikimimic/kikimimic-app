@@ -274,6 +274,23 @@ impl MainWindow {
             Phase::Stopping => ui.finishing().to_string(),
             Phase::Error { message } => ui.error(message),
         };
+        if !listening {
+            controls = controls.child(div().text_color(gray()).child(
+                if self.kkm.settings().save_face_to_face {
+                    "対面: 保存あり / Face-to-face: saved"
+                } else {
+                    "対面: 保存なし / Face-to-face: unsaved"
+                },
+            ));
+        } else {
+            controls = controls.child(div().text_color(gray()).child(
+                if state.recording_dir.is_some() {
+                    "保存中 / Saving"
+                } else {
+                    "保存なし / Not saving"
+                },
+            ));
+        }
         controls = controls.child(div().text_color(gray()).child(phase));
         col = col.child(controls);
         if let Some(q) = &state.question {
@@ -740,6 +757,16 @@ impl MainWindow {
             )
             .on_click(cx.listener(|this, _, _, cx| {
                 this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
+            })),
+        );
+        col = col.child(
+            button(
+                "save-face",
+                ui.save_face_to_face(),
+                settings.save_face_to_face,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.update_settings(|s| s.save_face_to_face = !s.save_face_to_face, cx)
             })),
         );
         col.child(self.calendar_section(cx)).into_any_element()

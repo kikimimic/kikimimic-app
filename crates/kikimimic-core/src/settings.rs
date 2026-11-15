@@ -19,6 +19,9 @@ pub struct Settings {
     /// Empty the session screen when a recording starts.
     #[serde(default)]
     pub clear_on_start: bool,
+    /// Opt in to persisting microphone-only sessions.
+    #[serde(default)]
+    pub save_face_to_face: bool,
 }
 
 impl Settings {
@@ -29,6 +32,7 @@ impl Settings {
             asr_model: catalog.defaults.asr.clone(),
             mt_model: catalog.defaults.mt.clone(),
             clear_on_start: false,
+            save_face_to_face: false,
         }
     }
 
