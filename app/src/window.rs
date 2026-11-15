@@ -853,7 +853,15 @@ impl Render for MainWindow {
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1f2328))
             .text_size(px(14.))
-            .child(self.header(cx));
+            .child(self.header(cx))
+            .child(
+                button("captions", "字幕", false).on_click(cx.listener(|this, _, _, cx| {
+                    if let Err(error) = crate::captions::open(this.state.clone(), cx) {
+                        this.error = Some(error.to_string());
+                        cx.notify();
+                    }
+                })),
+            );
         if let Some(e) = &self.error {
             root = root.child(
                 div()
