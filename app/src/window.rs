@@ -378,6 +378,30 @@ impl MainWindow {
                     },
                 )),
             );
+            for (id, label, extension) in [
+                ("export-md", "文字起こし .md", "md"),
+                ("export-srt", "字幕 .srt", "srt"),
+            ] {
+                let path = dir.clone();
+                bar = bar.child(button(id, label, false).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        let result = library::read(&path).and_then(|session| {
+                            let text = if extension == "md" {
+                                kikimimic_core::export::markdown(&session)
+                            } else {
+                                kikimimic_core::export::srt(&session)
+                            };
+                            std::fs::write(path.join(format!("transcript.{extension}")), text)
+                                .map_err(Into::into)
+                        });
+                        this.error = result.err().map(|e| e.to_string());
+                        if this.error.is_none() {
+                            let _ = std::process::Command::new("open").arg(&path).spawn();
+                        }
+                        cx.notify();
+                    },
+                )));
+            }
             bar =
                 match labelling {
                     Some(PostProcessState::Running) => {
