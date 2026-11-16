@@ -12,6 +12,15 @@ pub struct Captions {
     settings: bool,
 }
 pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
+    if !state.read(cx).is_listening() {
+        return Ok(());
+    }
+    for handle in cx.windows() {
+        if let Some(handle) = handle.downcast::<Captions>() {
+            handle.update(cx, |_, window, _| window.activate_window())?;
+            return Ok(());
+        }
+    }
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -25,9 +34,18 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
             kind: WindowKind::Floating,
             ..Default::default()
         },
-        |_, cx| {
+        |window, cx| {
             cx.new(|cx| {
-                cx.observe(&state, |_, _, cx| cx.notify()).detach();
+                cx.observe_in(&state, window, |_, state, window, cx| {
+                    if !state.read(cx).is_listening() {
+                        window.remove_window();
+                    } else {
+                        cx.notify();
+                    }
+                })
+                .detach();
+                cx.observe_window_appearance(window, |_, _, cx| cx.notify())
+                    .detach();
                 Captions {
                     state,
                     font: 22.,
@@ -55,12 +73,22 @@ impl Captions {
     }
 }
 impl Render for Captions {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = matches!(
+            window.appearance(),
+            WindowAppearance::Dark | WindowAppearance::VibrantDark
+        );
+        let surface = if dark { rgb(0x202124) } else { rgb(0xf5f5f7) };
+        let panel_bg = if dark { rgb(0x2c2c2e) } else { rgb(0xe8e8ed) };
+        let foreground = if dark { rgb(0xf5f5f7) } else { rgb(0x1d1d1f) };
+        let secondary = if dark { rgb(0xaeb1b8) } else { rgb(0x62656c) };
+        let translation = if dark { rgb(0xb8d8ff) } else { rgb(0x0969da) };
         let mut root = div()
             .id("captions")
             .size_full()
             .p_2()
-            .text_color(rgb(0xffffff))
+            .bg(surface)
+            .text_color(foreground)
             .flex()
             .flex_col()
             .gap_2()
@@ -99,7 +127,7 @@ impl Render for Captions {
                     .px_3()
                     .py_2()
                     .rounded(px(18.))
-                    .bg(rgba(0x202124ee))
+                    .bg(panel_bg)
                     .border_1()
                     .border_color(rgba(0xffffff24))
                     .cursor_pointer()
@@ -132,7 +160,7 @@ impl Render for Captions {
                             d.child(
                                 div()
                                     .text_size(px(11.))
-                                    .text_color(rgb(0xb6bac3))
+                                    .text_color(secondary)
                                     .child("字幕 · ドラッグで移動"),
                             )
                         }),
@@ -147,7 +175,7 @@ impl Render for Captions {
                                 .id("caption-settings")
                                 .px_2()
                                 .rounded_md()
-                                .bg(rgba(0x202124ee))
+                                .bg(panel_bg)
                                 .cursor_pointer()
                                 .child("…")
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -160,7 +188,7 @@ impl Render for Captions {
                                 .id("caption-minimize")
                                 .px_2()
                                 .rounded_md()
-                                .bg(rgba(0x202124ee))
+                                .bg(panel_bg)
                                 .cursor_pointer()
                                 .child("−")
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -176,7 +204,7 @@ impl Render for Captions {
                 .gap_2()
                 .p_3()
                 .rounded_lg()
-                .bg(rgb(0x292b30))
+                .bg(panel_bg)
                 .text_size(px(12.));
             for (id, label) in [
                 (
@@ -215,7 +243,7 @@ impl Render for Captions {
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(rgb(0xb6bac3))
+                            .text_color(secondary)
                             .child("共有・録画に映る可能性があります。"),
                     ),
             );
@@ -236,7 +264,7 @@ impl Render for Captions {
                     .px_3()
                     .py_2()
                     .rounded_lg()
-                    .bg(rgba(0x202124df))
+                    .bg(surface)
                     .child("字幕を待っています…"),
             );
         }
@@ -252,7 +280,7 @@ impl Render for Captions {
                 .px_3()
                 .py_2()
                 .rounded_lg()
-                .bg(rgba(0x202124df));
+                .bg(surface);
             if self.mode != 2 {
                 utterance =
                     utterance.child(div().child(format!("{}{}", line.committed, line.volatile)));
@@ -266,7 +294,7 @@ impl Render for Captions {
                 };
                 if !text.is_empty() {
                     utterance =
-                        utterance.child(div().text_color(rgb(0xb8d8ff)).child(text.to_owned()));
+                        utterance.child(div().text_color(translation).child(text.to_owned()));
                 }
             }
             content = content.child(utterance);
