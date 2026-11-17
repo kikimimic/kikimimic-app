@@ -9,6 +9,8 @@
 //! Engine calls never happen on the conductor thread, so a slow decode or a
 //! long translation never stalls capture draining or recording.
 
+mod imports;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -77,6 +79,11 @@ enum Msg {
     Decide(crate::capture::SourceDecision),
     Diarize(PathBuf),
     WordTiming(PathBuf),
+    Import(
+        imports::ImportCommand,
+        Box<dyn crate::imports::AudioDecoder>,
+    ),
+    ImportFinished(Box<dyn crate::imports::AudioDecoder>),
 }
 
 /// The app's handle. Cheap to clone; every call is a message to the
@@ -87,6 +94,7 @@ pub struct Kikimimic {
     settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
     store: ModelStore,
+    imports: Arc<Mutex<crate::imports::Queue>>,
 }
 
 /// The UI's single, ordered event stream.
@@ -108,6 +116,9 @@ impl Events {
 
 impl Kikimimic {
     pub fn start(config: Config) -> (Self, Events) {
+        let imports = Arc::new(Mutex::new(crate::imports::Queue::load(
+            config.data_dir.join("imports.json"),
+        )));
         let settings_path = config.data_dir.join("settings.toml");
         let settings = Settings::load(&settings_path, config.catalog);
         let store = ModelStore::new(
@@ -139,6 +150,9 @@ impl Kikimimic {
             diarizer: config.diarizer.map(|d| Arc::new(Mutex::new(d))),
             postprocessing: Arc::new(AtomicBool::new(false)),
             languages: Arc::clone(&settings),
+            imports: Arc::clone(&imports),
+            import_worker_running: false,
+            tx: tx.clone(),
         };
         thread::Builder::new()
             .name("kikimimic-conductor".into())
@@ -150,6 +164,7 @@ impl Kikimimic {
                 settings,
                 settings_path,
                 store,
+                imports,
             },
             Events(events_rx),
         )
@@ -279,10 +294,17 @@ struct Shell {
     /// A recording is being diarized; sessions wait for it.
     postprocessing: Arc<AtomicBool>,
     languages: Arc<Mutex<Settings>>,
+    imports: Arc<Mutex<crate::imports::Queue>>,
+    import_worker_running: bool,
+    tx: Sender<Msg>,
 }
 
 impl Shell {
     fn run(mut self, rx: Receiver<Msg>) {
+        let initial = self.imports.lock().unwrap().view.clone();
+        if !initial.jobs.is_empty() || initial.error.is_some() {
+            let _ = self.events.send(Event::Imports(initial));
+        }
         let mut next_tick = Instant::now() + POLL;
         loop {
             // Tick first when due, so a steady stream of engine answers can
@@ -308,6 +330,31 @@ impl Shell {
                 }
                 Ok(Msg::Diarize(dir)) => self.diarize(dir),
                 Ok(Msg::WordTiming(dir)) => self.word_timing(dir),
+                Ok(Msg::Import(command, decoder)) => self.import(command, decoder),
+                Ok(Msg::ImportFinished(decoder)) => {
+                    self.import_worker_running = false;
+                    self.postprocessing.store(false, Ordering::SeqCst);
+                    let _ = self
+                        .events
+                        .send(Event::Imports(self.imports.lock().unwrap().view.clone()));
+                    let pending = {
+                        let q = self.imports.lock().unwrap();
+                        q.view.error.is_none()
+                            && !q.stop.load(Ordering::SeqCst)
+                            && q.view
+                                .jobs
+                                .iter()
+                                .any(|j| j.state == crate::imports::ImportState::Pending)
+                    };
+                    if pending {
+                        self.import(
+                            imports::ImportCommand::Resume {
+                                retry_failed: false,
+                            },
+                            decoder,
+                        );
+                    }
+                }
                 Ok(Msg::Decide(decision)) => {
                     for handle in &mut self.handles {
                         handle.decide(decision.clone());
@@ -331,7 +378,7 @@ impl Shell {
             return None;
         }
         if self.postprocessing.load(Ordering::SeqCst) {
-            return self.refuse("recording post-processing is still running".into());
+            return self.refuse("another recording operation is still running".into());
         }
         let (reply_tx, reply_rx) = mpsc::channel();
         let _ = self.asr.send(AsrWork::Ensure(reply_tx));
@@ -515,6 +562,8 @@ enum AsrWork {
         String,
         Sender<Result<Vec<crate::word_timing::Word>, String>>,
     ),
+    ImportEnsure(Settings, Sender<Result<(), String>>),
+    ImportClip(Pcm16k, Settings, Sender<Result<Vec<Recognized>, String>>),
     Run(AsrIn),
     /// Make sure the model the settings name is loaded; reply with its cadence.
     Ensure(Sender<Result<Duration, String>>),
@@ -535,6 +584,21 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
                             e.word_timing(&audio, lang.as_deref())
                                 .map_err(|e| format!("{e:#}"))
                         });
+                        let _ = reply.send(result);
+                        continue;
+                    }
+                    AsrWork::ImportEnsure(settings, reply) => {
+                        let _ = reply.send(
+                            imports::ensure_import(&models, &mut loaded, &settings).map(|_| ()),
+                        );
+                        continue;
+                    }
+                    AsrWork::ImportClip(audio, settings, reply) => {
+                        let result = imports::ensure_import(&models, &mut loaded, &settings)
+                            .and_then(|e| {
+                                e.transcribe_clip(&audio, &settings.languages.spoken)
+                                    .map_err(|e| format!("{e:#}"))
+                            });
                         let _ = reply.send(result);
                         continue;
                     }
@@ -629,6 +693,11 @@ fn ensure_model<'a>(
 }
 
 enum MtWork {
+    Import {
+        job: MtJob,
+        settings: Settings,
+        reply: Sender<Result<String, String>>,
+    },
     Job(MtJob),
     /// Translate outside the session's queue (post-processing).
     Direct {
@@ -647,6 +716,19 @@ fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<MtWork> {
             let mut loaded: Option<(String, Box<dyn MtEngine>)> = None;
             for work in job_rx {
                 let job = match work {
+                    MtWork::Import {
+                        job,
+                        settings,
+                        reply,
+                    } => {
+                        let _ = reply.send(translate_with(
+                            &models,
+                            &mut loaded,
+                            &job,
+                            settings.mt_model,
+                        ));
+                        continue;
+                    }
                     MtWork::Job(job) => job,
                     MtWork::Direct {
                         text,
@@ -687,9 +769,16 @@ fn translate(
     loaded: &mut Option<(String, Box<dyn MtEngine>)>,
     job: &MtJob,
 ) -> Result<String, String> {
-    let wanted = models
-        .wanted_mt()
-        .ok_or("no translation model is selected")?;
+    translate_with(models, loaded, job, models.wanted_mt())
+}
+
+fn translate_with(
+    models: &Models,
+    loaded: &mut Option<(String, Box<dyn MtEngine>)>,
+    job: &MtJob,
+    wanted: Option<String>,
+) -> Result<String, String> {
+    let wanted = wanted.ok_or("no translation model is selected")?;
     if loaded.as_ref().is_none_or(|(id, _)| *id != wanted) {
         // Drop the old model before loading the next: two may not fit in memory.
         *loaded = None;

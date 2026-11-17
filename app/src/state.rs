@@ -59,6 +59,7 @@ pub struct AppState {
     pub post_process_revision: u64,
     pub word_timing: Option<(PathBuf, PostProcessState)>,
     pub word_revision: u64,
+    pub imports: kikimimic_core::imports::ImportQueue,
 }
 
 impl Default for AppState {
@@ -74,6 +75,7 @@ impl Default for AppState {
             post_process_revision: 0,
             word_timing: None,
             word_revision: 0,
+            imports: Default::default(),
         }
     }
 }
@@ -81,6 +83,7 @@ impl Default for AppState {
 impl AppState {
     pub fn apply(&mut self, event: Event) {
         match event {
+            Event::Imports(queue) => self.imports = queue,
             Event::Transcript {
                 lane,
                 utterance,
@@ -328,5 +331,20 @@ mod tests {
             s.source_message,
             Some(SourceMessage::Switched("AirPods".into()))
         );
+    }
+
+    #[test]
+    fn import_errors_do_not_replace_the_live_session_state() {
+        let mut s = AppState {
+            phase: Phase::Listening,
+            ..AppState::default()
+        };
+        let queue = kikimimic_core::imports::ImportQueue {
+            error: Some("stop the live session before resuming imports".into()),
+            ..Default::default()
+        };
+        s.apply(Event::Imports(queue.clone()));
+        assert_eq!(s.phase, Phase::Listening);
+        assert_eq!(s.imports, queue);
     }
 }

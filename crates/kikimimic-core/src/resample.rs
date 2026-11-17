@@ -64,6 +64,10 @@ impl StreamResampler {
         })
     }
 
+    pub(crate) fn output_delay(&self) -> usize {
+        self.inner.as_ref().map_or(0, |r| r.output_delay())
+    }
+
     /// Feed one chunk of mono samples, of any length; returns the 16 kHz
     /// audio that became available. Up to CHUNK-1 input samples stay
     /// buffered until the next call.
