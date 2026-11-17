@@ -26,11 +26,11 @@ pub fn markdown(session: &Session) -> String {
             "**[{:02}:{:02}] {}:** {}\n\n",
             line.start_ms / 60_000,
             line.start_ms / 1000 % 60,
-            if line.lane == "mic" {
+            line.speaker.as_deref().unwrap_or(if line.lane == "mic" {
                 "自分"
             } else {
                 "相手"
-            },
+            }),
             single_line(&line.text)
         ));
         if let Some(text) = &line.translation {
@@ -51,7 +51,10 @@ pub fn srt(session: &Session) -> String {
             i + 1,
             clock(line.start_ms),
             clock(line.end_ms),
-            single_line(&line.text)
+            match &line.speaker {
+                Some(speaker) => format!("{}: {}", single_line(speaker), single_line(&line.text)),
+                None => single_line(&line.text),
+            }
         ));
         if let Some(text) = &line.translation {
             out.push_str(&single_line(text));

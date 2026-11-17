@@ -6,6 +6,7 @@ mod engines;
 mod google;
 mod i18n;
 mod paths;
+mod speakers;
 mod state;
 mod widgets;
 mod window;

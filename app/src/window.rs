@@ -19,6 +19,7 @@ use kikimimic_core::{Kikimimic, SessionMode};
 use crate::calendar::{Calendar, Status};
 use crate::downloads::{Downloads, Progress};
 use crate::i18n::Ui;
+use crate::speakers::{Seek, SpeakerEditor};
 use crate::state::{AppState, SourceMessage, Translation};
 use crate::widgets::text_input::TextInput;
 use crate::widgets::transcript_line;
@@ -40,6 +41,7 @@ pub struct MainWindow {
     calendar: Entity<Calendar>,
     recordings: Vec<Recording>,
     open_recording: Option<(std::path::PathBuf, library::Session)>,
+    speaker_editor: Option<Entity<SpeakerEditor>>,
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
@@ -53,7 +55,7 @@ fn gray() -> Hsla {
     hsla(0., 0., 0.55, 1.)
 }
 
-fn button(
+pub(crate) fn button(
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
@@ -80,7 +82,7 @@ fn button(
         .child(label.into())
 }
 
-fn mm_ss(ms: u64) -> String {
+pub(crate) fn mm_ss(ms: u64) -> String {
     let s = ms / 1000;
     format!("{:02}:{:02}", s / 60, s % 60)
 }
@@ -120,7 +122,10 @@ impl MainWindow {
                 (Some((dir, PostProcessState::Done)), Some((open, _))) if dir == open
             );
             if done && let Some((dir, _)) = this.open_recording.take() {
-                this.open_recording = library::read(&dir).ok().map(|s| (dir, s));
+                if let Some(editor) = &this.speaker_editor {
+                    editor.update(cx, |editor, cx| editor.refresh_evidence(cx));
+                }
+                this.open_recording = library::read_raw(&dir).ok().map(|s| (dir, s));
             }
             cx.notify();
         })
@@ -137,6 +142,7 @@ impl MainWindow {
             calendar,
             recordings: Vec::new(),
             open_recording: None,
+            speaker_editor: None,
             playback: None,
             wrong,
             right,
@@ -150,7 +156,6 @@ impl MainWindow {
         self.tab = tab;
         if tab == Tab::Recordings {
             self.recordings = library::list(&crate::paths::recordings_dir());
-            self.open_recording = None;
         }
         cx.notify();
     }
@@ -432,7 +437,7 @@ impl MainWindow {
             .p_4()
             .size_full()
             .overflow_y_scroll();
-        if let Some((dir, session)) = &self.open_recording {
+        if let Some((dir, _session)) = &self.open_recording {
             let labelling = match &self.state.read(cx).post_process {
                 Some((d, state)) if d == dir => Some(state.clone()),
                 _ => None,
@@ -441,7 +446,20 @@ impl MainWindow {
             let mut bar = div().flex().gap_2().items_center().child(
                 button("back", ui.all_recordings(), false).on_click(cx.listener(
                     |this, _, _, cx| {
+                        if this
+                            .speaker_editor
+                            .as_ref()
+                            .is_some_and(|e| e.read(cx).is_dirty(cx))
+                        {
+                            if let Some(editor) = &this.speaker_editor {
+                                editor.update(cx, |editor, cx| editor.warn_unsaved(cx));
+                            }
+                            cx.notify();
+                            return;
+                        }
                         this.open_recording = None;
+                        this.speaker_editor = None;
+                        this.error = None;
                         cx.notify();
                     },
                 )),
@@ -489,26 +507,8 @@ impl MainWindow {
                     .on_click(cx.listener(|this, _, _, cx| this.play_recording(0, cx))),
             );
             col = col.child(bar);
-            for line in &session.lines {
-                let start = line.start_ms;
-                let mut row = div().flex().flex_col().py_1().child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .text_size(px(12.))
-                        .text_color(gray())
-                        .child(
-                            button(("seek", line.id), mm_ss(line.start_ms), false).on_click(
-                                cx.listener(move |this, _, _, cx| this.play_recording(start, cx)),
-                            ),
-                        )
-                        .child(line.speaker.clone().unwrap_or_else(|| line.lane.clone())),
-                );
-                row = row.child(line.text.clone());
-                if let Some(t) = &line.translation {
-                    row = row.child(div().text_color(rgb(0x0969da)).child(t.clone()));
-                }
-                col = col.child(row);
+            if let Some(editor) = &self.speaker_editor {
+                col = col.child(editor.clone());
             }
             return col.into_any_element();
         }
@@ -536,8 +536,19 @@ impl MainWindow {
                         ))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let path = std::path::PathBuf::from(&dir);
-                            match library::read(&path) {
-                                Ok(s) => this.open_recording = Some((path, s)),
+                            match library::read_raw(&path) {
+                                Ok(s) => {
+                                    let editor = cx
+                                        .new(|cx| SpeakerEditor::new(path.clone(), s.clone(), cx));
+                                    cx.subscribe(&editor, |this, _, event: &Seek, cx| {
+                                        this.play_recording(event.0, cx)
+                                    })
+                                    .detach();
+                                    cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+                                    this.speaker_editor = Some(editor);
+                                    this.open_recording = Some((path, s));
+                                    this.error = None;
+                                }
                                 Err(e) => this.error = Some(format!("{e:#}")),
                             }
                             cx.notify();
