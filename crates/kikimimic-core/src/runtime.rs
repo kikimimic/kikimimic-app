@@ -76,6 +76,7 @@ enum Msg {
     Start(SessionMode),
     Decide(crate::capture::SourceDecision),
     Diarize(PathBuf),
+    WordTiming(PathBuf),
 }
 
 /// The app's handle. Cheap to clone; every call is a message to the
@@ -175,6 +176,12 @@ impl Kikimimic {
     /// `Event::PostProcess`.
     pub fn diarize(&self, recording: PathBuf) {
         let _ = self.tx.send(Msg::Diarize(recording));
+    }
+
+    /// Generate separate re-recognized word estimates using the selected,
+    /// installed engine. Shares exclusion with live sessions and diarization.
+    pub fn generate_word_timing(&self, recording: PathBuf) {
+        let _ = self.tx.send(Msg::WordTiming(recording));
     }
 
     pub fn settings(&self) -> Settings {
@@ -300,6 +307,7 @@ impl Shell {
                     }
                 }
                 Ok(Msg::Diarize(dir)) => self.diarize(dir),
+                Ok(Msg::WordTiming(dir)) => self.word_timing(dir),
                 Ok(Msg::Decide(decision)) => {
                     for handle in &mut self.handles {
                         handle.decide(decision.clone());
@@ -323,7 +331,7 @@ impl Shell {
             return None;
         }
         if self.postprocessing.load(Ordering::SeqCst) {
-            return self.refuse("speaker labelling is still running".into());
+            return self.refuse("recording post-processing is still running".into());
         }
         let (reply_tx, reply_rx) = mpsc::channel();
         let _ = self.asr.send(AsrWork::Ensure(reply_tx));
@@ -369,6 +377,65 @@ impl Shell {
             recording,
             cadence,
         })
+    }
+
+    fn word_timing(&mut self, dir: PathBuf) {
+        let event = |state| Event::WordTiming {
+            recording: dir.clone(),
+            state,
+        };
+        if !self.conductor.is_idle() || self.postprocessing.swap(true, Ordering::SeqCst) {
+            let _ = self.events.send(event(PostProcessState::Failed {
+                message: "Stop the session or wait for recording post-processing first".into(),
+            }));
+            return;
+        }
+        let (asr, events, busy) = (
+            self.asr.clone(),
+            self.events.clone(),
+            self.postprocessing.clone(),
+        );
+        let base = self.recordings_dir.clone();
+        let model = self.languages.lock().unwrap().asr_model.clone();
+        let requested = dir.clone();
+        let _ = events.send(event(PostProcessState::Running));
+        let spawn = thread::Builder::new()
+            .name("kikimimic-words".into())
+            .spawn(move || {
+                let result = crate::library::resolve_recording(&base, &dir).and_then(|dir| {
+                    crate::word_timing::generate(&dir, &model, |samples, lang| {
+                        let (reply, answer) = mpsc::channel();
+                        asr.send(AsrWork::Words(
+                            samples.to_vec(),
+                            lang.map(str::to_string),
+                            model.clone(),
+                            reply,
+                        ))
+                        .map_err(|_| anyhow::anyhow!("the speech engine stopped"))?;
+                        answer.recv()?.map_err(anyhow::Error::msg)
+                    })
+                });
+                busy.store(false, Ordering::SeqCst);
+                let state = match result {
+                    Ok(_) => PostProcessState::Done,
+                    Err(e) => PostProcessState::Failed {
+                        message: format!("{e:#}"),
+                    },
+                };
+                let _ = events.send(Event::WordTiming {
+                    recording: dir,
+                    state,
+                });
+            });
+        if let Err(e) = spawn {
+            self.postprocessing.store(false, Ordering::SeqCst);
+            let _ = self.events.send(Event::WordTiming {
+                recording: requested,
+                state: PostProcessState::Failed {
+                    message: e.to_string(),
+                },
+            });
+        }
     }
 
     fn diarize(&mut self, dir: PathBuf) {
@@ -442,6 +509,12 @@ impl Shell {
 }
 
 enum AsrWork {
+    Words(
+        Vec<f32>,
+        Option<String>,
+        String,
+        Sender<Result<Vec<crate::word_timing::Word>, String>>,
+    ),
     Run(AsrIn),
     /// Make sure the model the settings name is loaded; reply with its cadence.
     Ensure(Sender<Result<Duration, String>>),
@@ -457,6 +530,14 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
             let mut loaded: Option<Loaded> = None;
             for work in work_rx {
                 let work = match work {
+                    AsrWork::Words(audio, lang, model, reply) => {
+                        let result = ensure_model(&models, &mut loaded, model).and_then(|e| {
+                            e.word_timing(&audio, lang.as_deref())
+                                .map_err(|e| format!("{e:#}"))
+                        });
+                        let _ = reply.send(result);
+                        continue;
+                    }
                     AsrWork::Ensure(reply) => {
                         let _ = reply.send(ensure(&models, &mut loaded).map(|e| e.cadence()));
                         continue;
@@ -526,6 +607,14 @@ fn ensure<'a>(
     loaded: &'a mut Option<Loaded>,
 ) -> Result<&'a mut Box<dyn AsrEngine>, String> {
     let wanted = models.wanted_asr();
+    ensure_model(models, loaded, wanted)
+}
+
+fn ensure_model<'a>(
+    models: &Models,
+    loaded: &'a mut Option<Loaded>,
+    wanted: String,
+) -> Result<&'a mut Box<dyn AsrEngine>, String> {
     if loaded.as_ref().is_none_or(|l| l.id != wanted) {
         *loaded = None;
         *loaded = Some(Loaded {

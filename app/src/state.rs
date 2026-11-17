@@ -56,6 +56,8 @@ pub struct AppState {
     pub source_message: Option<SourceMessage>,
     /// Speaker labelling of a recording, and how far it got.
     pub post_process: Option<(PathBuf, PostProcessState)>,
+    pub word_timing: Option<(PathBuf, PostProcessState)>,
+    pub word_revision: u64,
 }
 
 impl Default for AppState {
@@ -68,6 +70,8 @@ impl Default for AppState {
             question: None,
             source_message: None,
             post_process: None,
+            word_timing: None,
+            word_revision: 0,
         }
     }
 }
@@ -137,6 +141,10 @@ impl AppState {
                 self.source_message = Some(SourceMessage::Failed(reason));
             }
             Event::PostProcess { recording, state } => self.post_process = Some((recording, state)),
+            Event::WordTiming { recording, state } => {
+                self.word_timing = Some((recording, state));
+                self.word_revision += 1;
+            }
         }
     }
 

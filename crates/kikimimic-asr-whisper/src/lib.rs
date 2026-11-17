@@ -12,6 +12,8 @@ use anyhow::{Context, Result};
 use kikimimic_core::asr::{Hypothesis, SpeechDetector, WindowTranscriber};
 use kikimimic_core::domain::Spoken;
 
+mod words;
+
 /// Segments whisper itself considers likely non-speech (coughs, breaths,
 /// keyboard noise) hallucinate text; drop them above this probability.
 const NO_SPEECH_THRESHOLD: f32 = 0.6;
@@ -26,6 +28,7 @@ const NO_SPEECH_THRESHOLD: f32 = 0.6;
 const LANG_PIN_THRESHOLD: f32 = 0.6;
 
 pub struct WhisperEngine {
+    eot: i32,
     /// Decode state, created once and reused: whisper_init_state allocates
     /// KV caches and buffers, which is wasteful per window. The state keeps
     /// the model context alive via an internal Arc.
@@ -111,8 +114,10 @@ impl WhisperEngine {
         let ctx = whisper_rs::WhisperContext::new_with_params(model_path, params)
             .with_context(|| format!("load whisper model {model_path}"))?;
         let state = ctx.create_state().context("create whisper state")?;
+        let eot = ctx.token_eot();
         let allowed_lang_ids = to_lang_ids(allowed_langs)?;
         Ok(Self {
+            eot,
             state,
             allowed_codes: allowed_langs.to_vec(),
             allowed_lang_ids,
@@ -197,6 +202,48 @@ impl WhisperEngine {
 }
 
 impl WindowTranscriber for WhisperEngine {
+    fn word_timing(
+        &mut self,
+        audio: &[f32],
+        lang: Option<&str>,
+    ) -> Result<Vec<kikimimic_core::word_timing::Word>> {
+        anyhow::ensure!(!audio.is_empty(), "No audio to re-recognize");
+        let mut params =
+            whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        params.set_language(lang);
+        params.set_translate(false);
+        params.set_no_context(true);
+        params.set_token_timestamps(true);
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        params.set_suppress_nst(true);
+        self.state.full(params, audio)?;
+        let mut result = Vec::new();
+        for i in 0..self.state.full_n_segments() {
+            let Some(segment) = self.state.get_segment(i) else {
+                continue;
+            };
+            if segment.no_speech_probability() > NO_SPEECH_THRESHOLD {
+                continue;
+            }
+            let mut words = words::Words::default();
+            for j in 0..segment.n_tokens() {
+                let Some(token) = segment.get_token(j) else {
+                    continue;
+                };
+                if token.token_id() >= self.eot {
+                    continue;
+                }
+                let data = token.token_data();
+                words.push(token.to_bytes()?, data.t0, data.t1)?;
+            }
+            result.extend(words.finish()?);
+        }
+        Ok(result)
+    }
+
     fn transcribe(
         &mut self,
         window: &[f32],
