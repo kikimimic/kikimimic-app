@@ -43,6 +43,7 @@ pub struct MainWindow {
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
+    playback: Option<std::process::Child>,
     /// Where the session screen's right-click menu is open.
     menu: Option<Point<Pixels>>,
     ui: Ui,
@@ -107,6 +108,12 @@ impl MainWindow {
         cx.observe(&calendar, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |this: &mut Self, state, cx| {
             this.scroll.scroll_to_bottom();
+            if state.read(cx).is_listening()
+                && let Some(mut child) = this.playback.take()
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
             // Labelling finished for the open recording: show the split lines.
             let done = matches!(
                 (&state.read(cx).post_process, &this.open_recording),
@@ -130,6 +137,7 @@ impl MainWindow {
             calendar,
             recordings: Vec::new(),
             open_recording: None,
+            playback: None,
             wrong,
             right,
             error: None,
@@ -180,6 +188,10 @@ impl MainWindow {
     }
 
     fn start(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        if let Some(mut child) = self.playback.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         if self.kkm.settings().clear_on_start {
             self.state.update(cx, |s, _| s.lines.clear());
         }
@@ -382,6 +394,34 @@ impl MainWindow {
         .into_any_element()
     }
 
+    fn play_recording(&mut self, position: u64, cx: &mut Context<Self>) {
+        if self.state.read(cx).is_listening() {
+            self.error = Some("Stop recording before playback".into());
+            cx.notify();
+            return;
+        }
+        if let Some(mut child) = self.playback.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some((dir, _)) = &self.open_recording {
+            let script =
+                std::env::temp_dir().join(format!("kikimimic-player-{}.swift", std::process::id()));
+            let result = std::fs::write(&script, include_str!("playback.swift")).and_then(|_| {
+                std::process::Command::new("/usr/bin/swift")
+                    .arg(script)
+                    .arg(dir)
+                    .arg((position as f64 / 1000.0).to_string())
+                    .spawn()
+            });
+            match result {
+                Ok(child) => self.playback = Some(child),
+                Err(e) => self.error = Some(e.to_string()),
+            }
+        }
+        cx.notify();
+    }
+
     fn recordings_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
         let mut col = div()
@@ -444,15 +484,24 @@ impl MainWindow {
                         ))
                     }
                 };
+            bar = bar.child(
+                button("play-audio", "Play audio", false)
+                    .on_click(cx.listener(|this, _, _, cx| this.play_recording(0, cx))),
+            );
             col = col.child(bar);
             for line in &session.lines {
+                let start = line.start_ms;
                 let mut row = div().flex().flex_col().py_1().child(
                     div()
                         .flex()
                         .gap_2()
                         .text_size(px(12.))
                         .text_color(gray())
-                        .child(mm_ss(line.start_ms))
+                        .child(
+                            button(("seek", line.id), mm_ss(line.start_ms), false).on_click(
+                                cx.listener(move |this, _, _, cx| this.play_recording(start, cx)),
+                            ),
+                        )
                         .child(line.speaker.clone().unwrap_or_else(|| line.lane.clone())),
                 );
                 row = row.child(line.text.clone());
@@ -917,6 +966,15 @@ impl Render for MainWindow {
             );
         }
         root.child(div().flex_1().min_h_0().child(body))
+    }
+}
+
+impl Drop for MainWindow {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.playback.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
