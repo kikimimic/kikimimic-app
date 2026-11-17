@@ -165,3 +165,10 @@ docs/design/core.md の「未決事項とリスク」を参照。主なものは
 - `MtRequest.context` に相手レーンの発話も入れるか
 - llama のバックエンドを初期化したまま、GGUF だけを入れ替えられるか
 - 話者分離の最終形（S5 の後で決める）
+
+### Issue #8: Nemotron 評価の追跡
+
+- [x] 現行MLX実装と日本語比較の限界を整理し、[暫定ADR](docs/ADR/20261116-120008-nemotron-evaluation.md)を記録
+- [x] ダウンロード不要のRTTM計測ツール `scripts/evaluate-diarization.py`
+- [ ] 実録音で再実測・参照ラベルに対するDER評価
+- [ ] ネイティブ候補のABI・ggml隔離検証とS5の最終決定
