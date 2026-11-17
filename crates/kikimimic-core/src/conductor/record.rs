@@ -240,9 +240,19 @@ impl SessionRecorder {
             return;
         }
         let mixed = self.mixer.drain(MIX_LAG_SAMPLES);
-        if let Err(e) = write_samples(&mut self.mix, &mixed) {
+        if let Err(e) = write_samples(&mut self.mix, &mixed).and_then(|()| self.checkpoint()) {
             self.fail(e);
         }
+    }
+
+    // Commit headers as well as buffered samples before returning to capture.
+    // This preserves playable audio when the process exits without Drop.
+    fn checkpoint(&mut self) -> Result<()> {
+        for lane in &mut self.lanes {
+            lane.writer.flush().context("checkpoint lane recording")?;
+        }
+        self.mix.flush().context("checkpoint mix recording")?;
+        Ok(())
     }
 
     /// The write failure that stopped the recording, reported once so it does
@@ -340,6 +350,20 @@ mod tests {
         let spec = reader.spec();
         let samples = reader.samples::<i16>().map(|s| s.unwrap()).collect();
         (spec, samples)
+    }
+
+    #[test]
+    fn checkpoint_is_playable_without_finalizing() {
+        let base = scratch("checkpoint");
+        let mut rec = SessionRecorder::open(&base, "s", &[spec("mic", RECORD_RATE)]).unwrap();
+        rec.write_at(0, &vec![0.25; 3 * RECORD_RATE as usize], 0);
+        rec.pump_mix();
+        let dir = rec.dir().to_path_buf();
+        assert_eq!(read(&dir.join("mic.wav")).1.len(), 3 * RECORD_RATE as usize);
+        assert_eq!(read(&dir.join("mix.wav")).1.len(), RECORD_RATE as usize);
+        assert!(rec.take_failure().is_none());
+        rec.finish().unwrap();
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
