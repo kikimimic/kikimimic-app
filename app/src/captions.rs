@@ -5,11 +5,27 @@ use gpui::{prelude::*, *};
 pub struct Captions {
     state: Entity<AppState>,
     font: f32,
-    rows: usize,
+    scroll: ScrollHandle,
+    following: bool,
+    animating: bool,
     mode: usize,
     compact: bool,
     hovered: bool,
     settings: bool,
+}
+pub fn is_open(cx: &App) -> bool {
+    cx.windows()
+        .iter()
+        .any(|w| w.downcast::<Captions>().is_some())
+}
+pub fn toggle(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
+    for handle in cx.windows() {
+        if let Some(handle) = handle.downcast::<Captions>() {
+            handle.update(cx, |_, window, _| window.remove_window())?;
+            return Ok(());
+        }
+    }
+    open(state, cx)
 }
 pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
     if !state.read(cx).is_listening() {
@@ -36,10 +52,27 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
         },
         |window, cx| {
             cx.new(|cx| {
-                cx.observe_in(&state, window, |_, state, window, cx| {
+                cx.observe_in(&state, window, |this: &mut Captions, state, window, cx| {
                     if !state.read(cx).is_listening() {
                         window.remove_window();
                     } else {
+                        if this.following {
+                            this.follow_latest(window, cx);
+                        } else {
+                            let anchor = this.scroll.logical_scroll_top();
+                            let scroll = this.scroll.clone();
+                            window.on_next_frame(move |_, _| {
+                                let current = scroll.logical_scroll_top();
+                                if let (Some(old), Some(new)) = (
+                                    scroll.bounds_for_item(anchor.0),
+                                    scroll.bounds_for_item(current.0),
+                                ) {
+                                    let mut offset = scroll.offset();
+                                    offset.y += new.top() - old.top() + anchor.1 - current.1;
+                                    scroll.set_offset(offset);
+                                }
+                            });
+                        }
                         cx.notify();
                     }
                 })
@@ -49,7 +82,9 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
                 Captions {
                     state,
                     font: 22.,
-                    rows: 2,
+                    scroll: ScrollHandle::new(),
+                    following: true,
+                    animating: false,
                     mode: 0,
                     compact: false,
                     hovered: false,
@@ -61,6 +96,46 @@ pub fn open(state: Entity<AppState>, cx: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 impl Captions {
+    fn follow_latest(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if cx.reduce_motion() {
+            self.scroll.scroll_to_bottom();
+            cx.notify();
+            return;
+        }
+        if self.animating {
+            return;
+        }
+        self.animating = true;
+        let view = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let _ = view.update(cx, |this, cx| {
+                this.animating = false;
+                if !this.following || this.compact {
+                    return;
+                }
+                if cx.reduce_motion() {
+                    this.scroll.scroll_to_bottom();
+                    cx.notify();
+                    return;
+                }
+                let mut offset = this.scroll.offset();
+                let remaining = -this.scroll.max_offset().y - offset.y;
+                if remaining.abs() > px(0.5) {
+                    offset.y += remaining * 0.35;
+                    this.scroll.set_offset(offset);
+                    this.follow_latest(window, cx);
+                } else {
+                    this.scroll.scroll_to_bottom();
+                }
+                cx.notify();
+            });
+        });
+    }
+
+    fn at_latest(&self) -> bool {
+        self.scroll.offset().y + self.scroll.max_offset().y <= px(28.)
+    }
+
     fn toggle_compact(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.compact = !self.compact;
         self.settings = false;
@@ -69,6 +144,9 @@ impl Captions {
         } else {
             size(px(560.), px(260.))
         });
+        if !self.compact && self.following {
+            self.follow_latest(window, cx);
+        }
         cx.notify();
     }
 }
@@ -212,7 +290,6 @@ impl Render for Captions {
                     format!("表示: {}", ["原文と訳文", "原文", "訳文"][self.mode]),
                 ),
                 (1, format!("文字サイズ: {} pt", self.font)),
-                (2, format!("表示件数: {} 件", self.rows)),
             ] {
                 panel = panel.child(div().id(id).cursor_pointer().child(label).on_click(
                     cx.listener(move |this, _, _, cx| {
@@ -225,7 +302,7 @@ impl Render for Captions {
                                     this.font + 4.
                                 }
                             }
-                            _ => this.rows = this.rows % 3 + 1,
+                            _ => {}
                         }
                         cx.notify();
                     }),
@@ -253,6 +330,17 @@ impl Render for Captions {
             .id("caption-content")
             .flex_1()
             .min_h_0()
+            .track_scroll(&self.scroll)
+            .on_scroll(cx.listener(|this, _, window, cx| {
+                this.following = false;
+                let view = cx.entity().downgrade();
+                window.on_next_frame(move |_, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.following = this.at_latest();
+                        cx.notify();
+                    });
+                });
+            }))
             .overflow_y_scroll()
             .flex()
             .flex_col()
@@ -268,12 +356,23 @@ impl Render for Captions {
                     .child("字幕を待っています…"),
             );
         }
-        for line in state
-            .lines
-            .iter()
-            .skip(state.lines.len().saturating_sub(self.rows))
-        {
+        for line in &state.lines {
+            let mine = line.lane.as_str() == "mic" || line.lane.as_str().starts_with("mic-");
             let mut utterance = div()
+                .id(("utterance", line.id.0))
+                .when(mine, |d| d.border_dashed())
+                .border_l_2()
+                .border_color(if mine { secondary } else { translation })
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(secondary)
+                        .child(if mine {
+                            "自分 · マイク"
+                        } else {
+                            "相手 · PC音声"
+                        }),
+                )
                 .flex()
                 .flex_col()
                 .gap_1()
@@ -299,6 +398,22 @@ impl Render for Captions {
             }
             content = content.child(utterance);
         }
-        root.child(content)
+        root = root.child(content);
+        if !self.following {
+            root = root.child(
+                div()
+                    .id("caption-latest")
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(translation)
+                    .child("↓ 最新へ")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.following = true;
+                        this.follow_latest(window, cx);
+                        cx.notify();
+                    })),
+            );
+        }
+        root
     }
 }

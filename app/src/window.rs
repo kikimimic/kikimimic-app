@@ -275,7 +275,35 @@ impl MainWindow {
             Phase::Error { message } => ui.error(message),
         };
         controls = controls.child(div().text_color(gray()).child(phase));
-        col = col.child(controls);
+        let captions_open = crate::captions::is_open(cx);
+        controls = controls.child(div().flex_1()).child(
+            button(
+                "captions-switch",
+                if captions_open {
+                    "字幕  ● オン"
+                } else {
+                    "字幕  ○ オフ"
+                },
+                captions_open,
+            )
+            .opacity(if listening { 1. } else { 0.45 })
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.state.read(cx).is_listening() {
+                    if let Err(error) = crate::captions::toggle(this.state.clone(), cx) {
+                        this.error = Some(error.to_string());
+                    }
+                    cx.notify();
+                }
+            })),
+        );
+        col = col.child(
+            div()
+                .p_3()
+                .rounded_lg()
+                .border_1()
+                .border_color(rgb(0xd0d7de))
+                .child(controls),
+        );
         if let Some(q) = &state.question {
             let uid = q.uid.clone();
             let uid2 = q.uid.clone();
@@ -853,15 +881,7 @@ impl Render for MainWindow {
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1f2328))
             .text_size(px(14.))
-            .child(self.header(cx))
-            .child(
-                button("captions", "字幕", false).on_click(cx.listener(|this, _, _, cx| {
-                    if let Err(error) = crate::captions::open(this.state.clone(), cx) {
-                        this.error = Some(error.to_string());
-                        cx.notify();
-                    }
-                })),
-            );
+            .child(self.header(cx));
         if let Some(e) = &self.error {
             root = root.child(
                 div()
