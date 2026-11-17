@@ -92,11 +92,36 @@ pub struct Cue {
 pub struct WordTiming {
     #[serde(skip)]
     revision: Option<String>,
+    #[serde(skip)]
+    transcript_fingerprint: String,
     schema: u32,
     fingerprint: String,
     pub source: String,
     pub model: String,
     pub lines: Vec<TimedLine>,
+}
+
+fn transcript_fingerprint(lines: &[Line]) -> Result<String> {
+    let evidence: Vec<_> = lines
+        .iter()
+        .map(|line| {
+            (
+                &line.lane,
+                line.start_ms,
+                line.end_ms,
+                &line.lang,
+                &line.text,
+            )
+        })
+        .collect();
+    Ok(bytes_digest(&serde_json::to_vec(&evidence)?))
+}
+
+impl WordTiming {
+    /// Prevent row-index joins between different automatic transcript versions.
+    pub fn matches_transcript(&self, lines: &[Line]) -> bool {
+        transcript_fingerprint(lines).is_ok_and(|value| value == self.transcript_fingerprint)
+    }
 }
 
 /// Hash both actual audio bytes and the effective transcript/ranges. Titles do
@@ -199,6 +224,7 @@ pub fn load(dir: &Path) -> Result<Option<WordTiming>> {
     let mut data: WordTiming = serde_json::from_slice(&bytes)?;
     data.revision = Some(bytes_digest(&bytes));
     let session = library::read_raw(dir)?;
+    data.transcript_fingerprint = transcript_fingerprint(&session.lines)?;
     ensure!(
         data.fingerprint == fingerprint(dir, &session)?,
         "Word timing is stale: audio or transcript changed. Generate it again."
@@ -371,6 +397,7 @@ pub fn generate(
     );
     let mut data = WordTiming {
         revision: expected_revision,
+        transcript_fingerprint: transcript_fingerprint(&session.lines)?,
         schema: 1,
         fingerprint: expected,
         source: SOURCE.into(),

@@ -142,12 +142,12 @@ impl MainWindow {
             if state.read(cx).is_listening() {
                 this.stop_playback();
             }
-            // Labelling finished for the open recording: show the split lines.
+            // Failed reruns can also change the installed automatic evidence.
             let post_process_revision = state.read(cx).post_process_revision;
             let done = this.post_process_revision != post_process_revision
                 && matches!(
                     (&state.read(cx).post_process, &this.open_recording),
-                    (Some((dir, PostProcessState::Done)), Some((open, _))) if dir == open
+                    (Some((dir, PostProcessState::Done | PostProcessState::Failed { .. })), Some((open, _))) if dir == open
                 );
             this.post_process_revision = post_process_revision;
             if done && let Some((dir, _)) = this.open_recording.take() {

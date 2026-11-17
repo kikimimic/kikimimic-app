@@ -167,16 +167,14 @@ impl EvaluationPanel {
                 .reference
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("参照RTTMを明示的に選んでください"))?;
-            let duration = recording.duration_ms as f64 / 1000.;
-            let options = make_options(
+            let options = (
                 self.mode,
-                duration,
                 self.custom_range,
-                self.start.read(cx).text(),
-                self.end.read(cx).text(),
-                self.collar.read(cx).text(),
+                self.start.read(cx).text().to_owned(),
+                self.end.read(cx).text().to_owned(),
+                self.collar.read(cx).text().to_owned(),
                 self.skip_overlap,
-            )?;
+            );
             let dir = PathBuf::from(&recording.dir);
             let hypothesis = self
                 .hypothesis
@@ -198,7 +196,13 @@ impl EvaluationPanel {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { evaluation_io::run(dir, reference, hypothesis, options) })
+                .spawn(async move {
+                    let (mode, custom, start, end, collar, skip_overlap) = options;
+                    let duration = library::audio_duration_seconds(&dir)?;
+                    let options =
+                        make_options(mode, duration, custom, &start, &end, &collar, skip_overlap)?;
+                    evaluation_io::run(dir, reference, hypothesis, options)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
@@ -639,6 +643,51 @@ mod tests {
     }
 
     #[gpui::test]
+    fn evaluates_the_exact_sample_clock_instead_of_display_milliseconds(cx: &mut TestAppContext) {
+        let base = std::env::temp_dir().join(format!(
+            "kkm-evaluation-fractional-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _scratch = Scratch(base.clone());
+        let dir = base.join("recording");
+        fs::create_dir_all(dir.join("postprocess")).unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut wav = hound::WavWriter::create(dir.join("mic.wav"), spec).unwrap();
+        for _ in 0..16_001 {
+            wav.write_sample(0i16).unwrap();
+        }
+        wav.finalize().unwrap();
+        let reference = dir.join("human.rttm");
+        let rttm = "SPEAKER audio 1 0 1.0000625 <NA> <NA> speaker_0 <NA> <NA>\n";
+        fs::write(&reference, rttm).unwrap();
+        fs::write(dir.join("postprocess/nemotron.rttm"), rttm).unwrap();
+        let panel = cx.new(EvaluationPanel::new);
+        panel.update(cx, |panel, cx| {
+            panel.recordings = library::list(&base);
+            assert_eq!(panel.recordings[0].duration_ms, 1000);
+            panel.selected = Some(0);
+            panel.reference = Some(reference);
+            panel.mode = Mode::HumanReference;
+            panel.run(cx);
+        });
+        cx.run_until_parked();
+        panel.update(cx, |panel, _| {
+            let artifact = panel.result.as_ref().expect("exact WAV end is valid RTTM");
+            assert_eq!(artifact.report.der, Some(0.0));
+            assert_eq!(artifact.report.options.recording_duration, 1.0000625);
+        });
+    }
+
+    #[gpui::test]
     fn gpui_selects_reference_runs_saves_and_emits_recording_seek(cx: &mut TestAppContext) {
         let dir = std::env::temp_dir().join(format!(
             "kkm-evaluation-panel-{}-{}",
@@ -650,6 +699,17 @@ mod tests {
         ));
         let _scratch = Scratch(dir.clone());
         fs::create_dir_all(dir.join("postprocess")).unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut wav = hound::WavWriter::create(dir.join("mic.wav"), spec).unwrap();
+        for _ in 0..160_000 {
+            wav.write_sample(0i16).unwrap();
+        }
+        wav.finalize().unwrap();
         let reference = dir.join("human.rttm");
         fs::write(&reference, "SPEAKER audio 1 0 5 <NA> <NA> A <NA> <NA>\n").unwrap();
         fs::write(

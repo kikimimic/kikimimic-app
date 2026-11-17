@@ -167,6 +167,23 @@ fn duration_ms(path: &Path) -> Option<u64> {
     (rate > 0).then(|| reader.duration() as u64 * 1_000 / rate)
 }
 
+/// Exact audio clock for validation and evaluation, separate from display ms.
+pub fn audio_duration_seconds(dir: &Path) -> anyhow::Result<f64> {
+    let duration = |path: &Path| {
+        let reader = hound::WavReader::open(path).ok()?;
+        let rate = reader.spec().sample_rate;
+        (rate > 0).then(|| f64::from(reader.duration()) / f64::from(rate))
+    };
+    duration(&dir.join("mix.wav"))
+        .or_else(|| {
+            LANES
+                .iter()
+                .filter_map(|lane| duration(&dir.join(format!("{lane}.wav"))))
+                .reduce(f64::max)
+        })
+        .ok_or_else(|| anyhow::anyhow!("recording has no readable audio clock"))
+}
+
 /// The first utterance and how many there are. Translation lines are skipped:
 /// the snippet should read as what was said, not as what we made of it.
 fn read_transcript(path: &Path) -> (String, usize) {

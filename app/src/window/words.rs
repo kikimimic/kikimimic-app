@@ -62,6 +62,9 @@ impl MainWindow {
                     return;
                 }
                 this.words.loading = false;
+                if let Some(editor) = &this.speaker_editor {
+                    editor.update(cx, |editor, cx| editor.refresh_evidence(cx));
+                }
                 match result {
                     Ok(data) => this.words.data = data.map(Arc::new),
                     Err(e) => this.words.error = Some(format!("{e:#}")),

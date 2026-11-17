@@ -47,7 +47,7 @@ impl SpeakerEditor {
         editing: bool,
         cx: &mut Context<Self>,
     ) {
-        self.word_data = data;
+        self.word_data = data.filter(|data| data.matches_transcript(&self.raw.lines));
         self.word_editing = editing;
         cx.notify();
     }
@@ -612,6 +612,19 @@ mod tests {
         fn editor(&self, cx: &mut Context<SpeakerEditor>) -> SpeakerEditor {
             SpeakerEditor::new(self.0.clone(), library::read_raw(&self.0).unwrap(), cx)
         }
+        fn audio(&self) {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut wav = hound::WavWriter::create(self.0.join("mic.wav"), spec).unwrap();
+            for _ in 0..32_000 {
+                wav.write_sample(500i16).unwrap();
+            }
+            wav.finalize().unwrap();
+        }
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
@@ -624,6 +637,7 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         let fixture = Fixture::new();
+        fixture.audio();
         let (editor, cx) = cx.add_window_view(|_, cx| fixture.editor(cx));
         let actions = Arc::new(std::sync::Mutex::new(Vec::new()));
         let received = actions.clone();
@@ -635,13 +649,25 @@ mod tests {
             })
             .detach();
         editor.update(cx, |editor, cx| {
-            let data: WordTiming = serde_json::from_value(serde_json::json!({
-                "schema": 1, "fingerprint": "render-fixture", "source": "fixture", "model": "fixture",
-                "lines": [{ "words": [
-                    { "text": "最初", "timing": { "start_ms": 100, "end_ms": 200 } },
-                    { "text": "の語", "timing": { "start_ms": 250, "end_ms": 400 } }
-                ], "breaks": [] }]
-            })).unwrap();
+            let data = kikimimic_core::word_timing::generate(&fixture.0, "fixture", |_, _| {
+                Ok(vec![
+                    kikimimic_core::word_timing::Word {
+                        text: "最初".into(),
+                        timing: Some(kikimimic_core::word_timing::TimeRange {
+                            start_ms: 0,
+                            end_ms: 100,
+                        }),
+                    },
+                    kikimimic_core::word_timing::Word {
+                        text: "の語".into(),
+                        timing: Some(kikimimic_core::word_timing::TimeRange {
+                            start_ms: 150,
+                            end_ms: 300,
+                        }),
+                    },
+                ])
+            })
+            .unwrap();
             editor.set_word_timing(Some(Arc::new(data)), true, cx);
         });
         cx.run_until_parked();
@@ -675,6 +701,63 @@ mod tests {
                 .as_deref(),
             Some("speaker_1")
         );
+    }
+
+    #[gpui::test]
+    fn failed_diarization_refreshes_evidence_before_new_word_times_are_attached(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        fixture.audio();
+        std::fs::create_dir_all(fixture.0.join("postprocess")).unwrap();
+        std::fs::write(fixture.0.join("transcript.jsonl"), "{\"type\":\"utterance\",\"id\":1,\"lane\":\"mic\",\"startMs\":0,\"endMs\":2000,\"text\":\"whole\"}\n").unwrap();
+        std::fs::write(fixture.0.join(kikimimic_core::postprocess::TRANSCRIPT), concat!(
+            "{\"type\":\"utterance\",\"id\":1,\"lane\":\"mic\",\"startMs\":0,\"endMs\":1000,\"text\":\"old first\"}\n",
+            "{\"type\":\"utterance\",\"id\":2,\"lane\":\"mic\",\"startMs\":1000,\"endMs\":2000,\"text\":\"old second\"}\n"
+        )).unwrap();
+        let editor = cx.new(|cx| fixture.editor(cx));
+        editor.update(cx, |editor, cx| {
+            editor.set_row(0, Some("speaker_1".into()), true, cx)
+        });
+        let rttm = fixture.0.join("new.rttm");
+        std::fs::write(&rttm, "SPEAKER mix 1 0 1 <NA> <NA> speaker_0 <NA> <NA>\nSPEAKER mix 1 1 1 <NA> <NA> speaker_1 <NA> <NA>\n").unwrap();
+        kikimimic_core::postprocess::install_rttm(&fixture.0, &rttm).unwrap();
+        assert!(
+            kikimimic_core::postprocess::split(
+                &fixture.0,
+                |_, _| anyhow::bail!("injected ASR failure"),
+                |_, _, _| None
+            )
+            .is_err()
+        );
+        let data = Arc::new(
+            kikimimic_core::word_timing::generate(&fixture.0, "fixture", |_, _| {
+                Ok(vec![kikimimic_core::word_timing::Word {
+                    text: "new word".into(),
+                    timing: Some(kikimimic_core::word_timing::TimeRange {
+                        start_ms: 1500,
+                        end_ms: 1700,
+                    }),
+                }])
+            })
+            .unwrap(),
+        );
+        editor.update(cx, |editor, cx| {
+            editor.set_word_timing(Some(data.clone()), false, cx);
+            assert!(
+                editor.word_data.is_none(),
+                "new words must not join old rows by index"
+            );
+            editor.refresh_evidence(cx);
+            editor.set_word_timing(Some(data), false, cx);
+            assert_eq!(editor.raw.lines.len(), 1);
+            assert_eq!(editor.raw.lines[0].text, "whole");
+            assert!(editor.word_data.is_some());
+            assert_eq!(
+                editor.file.as_ref().unwrap().annotations.corrections.len(),
+                1
+            );
+        });
     }
 
     #[gpui::test]
