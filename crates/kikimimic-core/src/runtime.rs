@@ -415,10 +415,12 @@ impl Shell {
                 recording_dir: None,
             }));
         }
-        let recording = (mode == SessionMode::Meeting).then(|| RecordingTarget {
-            base: self.recordings_dir.clone(),
-            name: (self.session_name)(),
-        });
+        let recording = (mode == SessionMode::Meeting
+            || self.languages.lock().unwrap().save_face_to_face)
+            .then(|| RecordingTarget {
+                base: self.recordings_dir.clone(),
+                name: (self.session_name)(),
+            });
         Some(StartSession {
             lanes,
             recording,
