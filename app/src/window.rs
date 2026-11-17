@@ -43,6 +43,7 @@ pub struct MainWindow {
     scroll: ScrollHandle,
     downloads: Downloads,
     calendar: Entity<Calendar>,
+    evaluation: Entity<crate::evaluation::EvaluationPanel>,
     recordings: Vec<Recording>,
     import_draft: Vec<std::path::PathBuf>,
     imports_completed: usize,
@@ -183,6 +184,14 @@ impl MainWindow {
         let ui = Ui::detect();
         let wrong = cx.new(|cx| TextInput::new(ui.misrecognized_as(), cx));
         let right = cx.new(|cx| TextInput::new(ui.correct_spelling(), cx));
+        let evaluation = cx.new(crate::evaluation::EvaluationPanel::new);
+        cx.subscribe(
+            &evaluation,
+            |this, _, seek: &crate::evaluation::Seek, cx| {
+                this.play_from(&seek.dir, seek.position_ms, cx);
+            },
+        )
+        .detach();
         Self {
             kkm,
             state,
@@ -190,6 +199,7 @@ impl MainWindow {
             scroll: ScrollHandle::new(),
             downloads: Downloads::default(),
             calendar,
+            evaluation,
             recordings: Vec::new(),
             import_draft: Vec::new(),
             imports_completed: 0,
@@ -469,6 +479,22 @@ impl MainWindow {
     }
 
     fn play_word(&mut self, position: u64, lane: &str, cx: &mut Context<Self>) {
+        if let Some((dir, _)) = &self.open_recording {
+            self.play_audio(&dir.clone(), position, lane, cx);
+        }
+    }
+
+    fn play_from(&mut self, dir: &std::path::Path, position: u64, cx: &mut Context<Self>) {
+        self.play_audio(dir, position, "mix", cx);
+    }
+
+    fn play_audio(
+        &mut self,
+        dir: &std::path::Path,
+        position: u64,
+        lane: &str,
+        cx: &mut Context<Self>,
+    ) {
         if self.state.read(cx).is_listening() {
             self.error = Some("Stop recording before playback".into());
             cx.notify();
@@ -476,7 +502,7 @@ impl MainWindow {
         }
         self.stop_playback();
         self.sync_word_editor(cx);
-        if let Some((dir, _)) = &self.open_recording {
+        {
             let script =
                 std::env::temp_dir().join(format!("kikimimic-player-{}.swift", std::process::id()));
             let status = std::env::temp_dir().join(format!(
@@ -501,7 +527,7 @@ impl MainWindow {
                 Ok(child) => {
                     self.playback = Some(child);
                     self.playback_status = Some(status.clone());
-                    self.observe_playback(status, cx);
+                    self.observe_playback(status, dir.to_path_buf(), cx);
                 }
                 Err(e) => self.error = Some(e.to_string()),
             }
@@ -953,7 +979,9 @@ impl MainWindow {
                 this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
             })),
         );
-        col.child(self.calendar_section(cx)).into_any_element()
+        col.child(self.calendar_section(cx))
+            .child(self.evaluation.clone())
+            .into_any_element()
     }
 
     fn calendar_section(&self, cx: &mut Context<Self>) -> impl IntoElement {

@@ -7,6 +7,41 @@ fn text(ui: Ui, en: &'static str, ja: &'static str) -> &'static str {
     if ui == Ui::Ja { ja } else { en }
 }
 
+fn model_title(id: &str) -> String {
+    kikimimic_core::catalog::Catalog::builtin()
+        .get(id)
+        .map_or_else(|| id.to_string(), |model| model.title.clone())
+}
+
+fn settings_summary(ui: Ui, settings: &kikimimic_core::settings::Settings) -> String {
+    let name = |code: &str| {
+        kikimimic_core::language::NAMES
+            .iter()
+            .find(|(tag, _, _)| *tag == code)
+            .map_or_else(
+                || code.to_string(),
+                |(_, en, native)| if ui == Ui::Ja { *native } else { *en }.to_string(),
+            )
+    };
+    let spoken = settings
+        .languages
+        .spoken
+        .iter()
+        .map(|lang| name(lang.as_str()))
+        .collect::<Vec<_>>()
+        .join(" / ");
+    let target = settings.languages.target.as_ref().map_or_else(
+        || text(ui, "No translation", "翻訳なし").to_string(),
+        |lang| name(lang.as_str()),
+    );
+    format!(
+        "{} · {} → {}",
+        model_title(&settings.asr_model),
+        spoken,
+        target
+    )
+}
+
 impl MainWindow {
     fn pick_import(&mut self, join: bool, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -49,7 +84,7 @@ impl MainWindow {
                     .on_click(cx.listener(|w, _, _, cx| w.pick_import(false, cx))))
                 .child(button("join-wav", text(ui, "Join WAVs into one meeting", "WAVを1会議に結合"), false)
                     .on_click(cx.listener(|w, _, _, cx| w.pick_import(true, cx)))))
-            .child(div().text_size(px(12.)).text_color(gray()).child(format!("ASR: {} · MT: {} · {:?} → {}", settings.asr_model, settings.mt_model.as_deref().unwrap_or("—"), settings.languages.spoken, settings.languages.target.as_ref().map_or("—", |l| l.as_str()))))
+            .child(div().text_size(px(12.)).text_color(gray()).child(settings_summary(ui, &settings)))
             .child(div().text_size(px(12.)).text_color(gray()).child(text(ui,
                 "Settings are saved per job. Stop finishes the current file (or joined group); resume starts interrupted files from the beginning.",
                 "設定は投入時に保存します。停止は処理中のファイル（結合時は1会議）の完了後。中断したファイルは先頭から再処理します。")));
@@ -205,8 +240,11 @@ impl MainWindow {
                     job.id,
                     label,
                     names,
-                    job.settings.asr_model,
-                    job.settings.mt_model.as_deref().unwrap_or("—")
+                    model_title(&job.settings.asr_model),
+                    job.settings
+                        .mt_model
+                        .as_deref()
+                        .map_or_else(|| "—".to_string(), model_title)
                 ));
                 if let Some(error) = error {
                     row = row.child(div().text_color(rgb(0xcf222e)).child(error.clone()));

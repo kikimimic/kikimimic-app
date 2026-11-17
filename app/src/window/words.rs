@@ -129,11 +129,19 @@ impl MainWindow {
                     move |_, _, _, cx| {
                         // Re-check fingerprints at export, including changes outside UI.
                         let path = dir.clone();
+                        let recording = dir.clone();
                         cx.spawn(async move |this, cx| {
                             let result = cx
                                 .background_spawn(async move { word_timing::export_srt(&path) })
                                 .await;
                             let _ = this.update(cx, |this, cx| {
+                                if !this
+                                    .open_recording
+                                    .as_ref()
+                                    .is_some_and(|(open, _)| open == &recording)
+                                {
+                                    return;
+                                }
                                 this.words.error = result.err().map(|e| format!("{e:#}"));
                                 cx.notify();
                             });
@@ -144,12 +152,15 @@ impl MainWindow {
                 )),
             );
         }
-        col = col.child(bar).child(div().text_color(gray()).child("Whisper再認識の推定時刻（実験的）。元本文の強制アラインメントではありません。日本語はモデルのトークン単位。単語を押すと元音声を再生します。"));
+        col = col.child(bar).child(div().text_color(gray()).child("単語の位置は再認識による推定です。元の本文・訳文は変更しません。日本語は文字や語の一部で区切られることがあります。単語を押すと聞き直せます。"));
         if let Some(data) = &self.words.data {
+            let title = kikimimic_core::catalog::Catalog::builtin()
+                .get(&data.model)
+                .map_or(data.model.as_str(), |model| model.title.as_str());
             col = col.child(
                 div()
                     .text_color(gray())
-                    .child(format!("出典: {} / {}", data.model, data.source)),
+                    .child(format!("時刻の生成: {title}")),
             );
         }
         if let Some(error) = &self.words.error {
@@ -222,7 +233,12 @@ impl MainWindow {
 
     /// Poll the player's actual AVAudioPlayer state. This timer only refreshes
     /// observations; it never advances a simulated playback position.
-    pub(super) fn observe_playback(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    pub(super) fn observe_playback(
+        &mut self,
+        path: PathBuf,
+        recording: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -239,7 +255,16 @@ impl MainWindow {
                         .playback
                         .as_mut()
                         .is_some_and(|child| matches!(child.try_wait(), Ok(None)));
-                    this.words.playback = if running { snapshot } else { None };
+                    this.words.playback = if running
+                        && this
+                            .open_recording
+                            .as_ref()
+                            .is_some_and(|(open, _)| open == &recording)
+                    {
+                        snapshot
+                    } else {
+                        None
+                    };
                     if let Some(editor) = &this.speaker_editor {
                         let playback = this.words.playback.clone();
                         editor.update(cx, |editor, cx| editor.set_word_playback(playback, cx));

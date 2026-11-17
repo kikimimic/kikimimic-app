@@ -5,6 +5,8 @@ mod captions;
 mod cutin;
 mod downloads;
 mod engines;
+mod evaluation;
+mod evaluation_io;
 mod google;
 mod i18n;
 mod paths;

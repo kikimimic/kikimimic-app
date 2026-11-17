@@ -1,0 +1,14 @@
+[
+  {"name":"permutation","duration":10,"reference":[[0,2,"A"],[2,5,"B"]],"hypothesis":[[0,2,"z"],[2,5,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[5,10,0,0,0]},
+  {"name":"miss","duration":10,"reference":[[0,5,"A"]],"hypothesis":[[0,3,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[5,10,2,0,0]},
+  {"name":"false_alarm","duration":10,"reference":[[0,3,"A"]],"hypothesis":[[0,5,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[3,10,0,2,0]},
+  {"name":"confusion","duration":10,"reference":[[0,6,"A"],[6,10,"B"]],"hypothesis":[[0,10,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[10,10,0,0,4]},
+  {"name":"global_non_greedy","duration":16,"reference":[[0,11,"A"],[11,16,"B"]],"hypothesis":[[0,6,"x"],[6,11,"y"],[11,16,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[16,16,0,0,6]},
+  {"name":"overlap_included","duration":10,"reference":[[0,4,"A"],[2,6,"B"]],"hypothesis":[[0,6,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[8,10,2,0,2]},
+  {"name":"overlap_excluded","duration":10,"reference":[[0,4,"A"],[2,6,"B"]],"hypothesis":[[0,6,"x"]],"uem":[],"collar":0,"skip_overlap":true,"expected":[4,8,0,0,2]},
+  {"name":"collar_total_width","duration":10,"reference":[[2,6,"A"]],"hypothesis":[[3,5,"x"]],"uem":[],"collar":2,"skip_overlap":false,"expected":[2,6,0,0,0]},
+  {"name":"uem_edges","duration":10,"reference":[[0,10,"A"]],"hypothesis":[[0,4,"x"]],"uem":[[2,7]],"collar":2,"skip_overlap":false,"expected":[5,5,3,0,0]},
+  {"name":"uem_islands","duration":10,"reference":[[0,10,"A"]],"hypothesis":[[0,4,"x"]],"uem":[[1,2],[8,9]],"collar":0,"skip_overlap":false,"expected":[2,2,1,0,0]},
+  {"name":"all_excluded","duration":10,"reference":[[2,6,"A"]],"hypothesis":[[3,5,"x"]],"uem":[],"collar":20,"skip_overlap":false,"expected":[0,0,0,0,0]},
+  {"name":"empty_reference","duration":10,"reference":[],"hypothesis":[[0,2,"x"]],"uem":[],"collar":0,"skip_overlap":false,"expected":[0,10,0,2,0]}
+]
