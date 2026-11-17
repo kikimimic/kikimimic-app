@@ -24,6 +24,7 @@ mod scheduler;
 pub mod settings;
 pub mod sim;
 pub mod store;
+pub mod word_timing;
 
 pub use conductor::RecordingTarget;
 pub use runtime::{CaptureBackend, CaptureHandle, Config, Events, Kikimimic, SessionMode};

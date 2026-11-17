@@ -24,6 +24,8 @@ use crate::state::{AppState, SourceMessage, Translation};
 use crate::widgets::text_input::TextInput;
 use crate::widgets::transcript_line;
 
+pub(crate) mod words;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Session,
@@ -46,6 +48,9 @@ pub struct MainWindow {
     right: Entity<TextInput>,
     error: Option<String>,
     playback: Option<std::process::Child>,
+    playback_status: Option<std::path::PathBuf>,
+    words: words::WordsView,
+    post_process_revision: u64,
     /// Where the session screen's right-click menu is open.
     menu: Option<Point<Pixels>>,
     ui: Ui,
@@ -110,23 +115,45 @@ impl MainWindow {
         cx.observe(&calendar, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |this: &mut Self, state, cx| {
             this.scroll.scroll_to_bottom();
-            if state.read(cx).is_listening()
-                && let Some(mut child) = this.playback.take()
-            {
-                let _ = child.kill();
-                let _ = child.wait();
+            if state.read(cx).is_listening() {
+                this.stop_playback();
             }
             // Labelling finished for the open recording: show the split lines.
-            let done = matches!(
-                (&state.read(cx).post_process, &this.open_recording),
-                (Some((dir, PostProcessState::Done)), Some((open, _))) if dir == open
-            );
+            let post_process_revision = state.read(cx).post_process_revision;
+            let done = this.post_process_revision != post_process_revision
+                && matches!(
+                    (&state.read(cx).post_process, &this.open_recording),
+                    (Some((dir, PostProcessState::Done)), Some((open, _))) if dir == open
+                );
+            this.post_process_revision = post_process_revision;
             if done && let Some((dir, _)) = this.open_recording.take() {
                 if let Some(editor) = &this.speaker_editor {
                     editor.update(cx, |editor, cx| editor.refresh_evidence(cx));
                 }
-                this.open_recording = library::read_raw(&dir).ok().map(|s| (dir, s));
+                this.open_recording = library::read_raw(&dir).ok().map(|s| (dir.clone(), s));
+                this.load_words(dir, cx);
             }
+            let word_event = state.read(cx).word_timing.clone();
+            if this.words.revision != state.read(cx).word_revision
+                && let Some((dir, result)) = word_event
+            {
+                this.words.revision = state.read(cx).word_revision;
+                if this
+                    .open_recording
+                    .as_ref()
+                    .is_some_and(|(open, _)| open == &dir)
+                {
+                    match result {
+                        PostProcessState::Done => this.load_words(dir, cx),
+                        PostProcessState::Failed { message } => {
+                            this.words.pending = false;
+                            this.words.error = Some(message);
+                        }
+                        PostProcessState::Running => this.words.pending = true,
+                    }
+                }
+            }
+            this.sync_word_editor(cx);
             cx.notify();
         })
         .detach();
@@ -144,6 +171,9 @@ impl MainWindow {
             open_recording: None,
             speaker_editor: None,
             playback: None,
+            playback_status: None,
+            words: words::WordsView::default(),
+            post_process_revision: 0,
             wrong,
             right,
             error: None,
@@ -155,6 +185,8 @@ impl MainWindow {
     fn select(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.tab = tab;
         if tab == Tab::Recordings {
+            self.stop_playback();
+            self.sync_word_editor(cx);
             self.recordings = library::list(&crate::paths::recordings_dir());
         }
         cx.notify();
@@ -193,10 +225,7 @@ impl MainWindow {
     }
 
     fn start(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
-        if let Some(mut child) = self.playback.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.stop_playback();
         if self.kkm.settings().clear_on_start {
             self.state.update(cx, |s, _| s.lines.clear());
         }
@@ -400,27 +429,55 @@ impl MainWindow {
     }
 
     fn play_recording(&mut self, position: u64, cx: &mut Context<Self>) {
+        self.play_word(position, "mix", cx);
+    }
+
+    fn stop_playback(&mut self) {
+        if let Some(mut child) = self.playback.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(path) = self.playback_status.take() {
+            let _ = std::fs::remove_file(path);
+        }
+        self.words.playback = None;
+    }
+
+    fn play_word(&mut self, position: u64, lane: &str, cx: &mut Context<Self>) {
         if self.state.read(cx).is_listening() {
             self.error = Some("Stop recording before playback".into());
             cx.notify();
             return;
         }
-        if let Some(mut child) = self.playback.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.stop_playback();
+        self.sync_word_editor(cx);
         if let Some((dir, _)) = &self.open_recording {
             let script =
                 std::env::temp_dir().join(format!("kikimimic-player-{}.swift", std::process::id()));
+            let status = std::env::temp_dir().join(format!(
+                "kikimimic-player-{}-{}.json",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
             let result = std::fs::write(&script, include_str!("playback.swift")).and_then(|_| {
                 std::process::Command::new("/usr/bin/swift")
                     .arg(script)
                     .arg(dir)
                     .arg((position as f64 / 1000.0).to_string())
+                    .arg(&status)
+                    .arg("autoplay")
+                    .arg(lane)
                     .spawn()
             });
             match result {
-                Ok(child) => self.playback = Some(child),
+                Ok(child) => {
+                    self.playback = Some(child);
+                    self.playback_status = Some(status.clone());
+                    self.observe_playback(status, cx);
+                }
                 Err(e) => self.error = Some(e.to_string()),
             }
         }
@@ -460,6 +517,7 @@ impl MainWindow {
                         this.open_recording = None;
                         this.speaker_editor = None;
                         this.error = None;
+                        this.stop_playback();
                         cx.notify();
                     },
                 )),
@@ -488,25 +546,25 @@ impl MainWindow {
                     },
                 )));
             }
-            bar =
-                match labelling {
-                    Some(PostProcessState::Running) => {
-                        bar.child(div().text_color(gray()).child(ui.identifying()))
+            bar = match labelling {
+                Some(PostProcessState::Running) => {
+                    bar.child(div().text_color(gray()).child(ui.identifying()))
+                }
+                other => {
+                    let diarize_dir = dir.clone();
+                    if let Some(PostProcessState::Failed { message }) = other {
+                        bar = bar.child(div().text_color(rgb(0xcf222e)).child(message));
                     }
-                    other => {
-                        if let Some(PostProcessState::Failed { message }) = other {
-                            bar = bar.child(div().text_color(rgb(0xcf222e)).child(message));
-                        }
-                        bar.child(button("diarize", ui.identify_speakers(), false).on_click(
-                            cx.listener(move |this, _, _, _| this.kkm.diarize(dir.clone())),
-                        ))
-                    }
-                };
+                    bar.child(button("diarize", ui.identify_speakers(), false).on_click(
+                        cx.listener(move |this, _, _, _| this.kkm.diarize(diarize_dir.clone())),
+                    ))
+                }
+            };
             bar = bar.child(
                 button("play-audio", "Play audio", false)
                     .on_click(cx.listener(|this, _, _, cx| this.play_recording(0, cx))),
             );
-            col = col.child(bar);
+            col = col.child(bar).child(self.word_toolbar(dir.clone(), cx));
             if let Some(editor) = &self.speaker_editor {
                 col = col.child(editor.clone());
             }
@@ -538,15 +596,30 @@ impl MainWindow {
                             let path = std::path::PathBuf::from(&dir);
                             match library::read_raw(&path) {
                                 Ok(s) => {
+                                    this.stop_playback();
                                     let editor = cx
                                         .new(|cx| SpeakerEditor::new(path.clone(), s.clone(), cx));
                                     cx.subscribe(&editor, |this, _, event: &Seek, cx| {
                                         this.play_recording(event.0, cx)
                                     })
                                     .detach();
+                                    cx.subscribe(
+                                        &editor,
+                                        |this, _, event: &words::WordAction, cx| match event {
+                                            words::WordAction::Seek { position, lane } => {
+                                                this.play_word(*position, lane, cx)
+                                            }
+                                            words::WordAction::ToggleBreak { line, word } => {
+                                                this.toggle_word_break(*line, *word, cx)
+                                            }
+                                        },
+                                    )
+                                    .detach();
                                     cx.observe(&editor, |_, _, cx| cx.notify()).detach();
                                     this.speaker_editor = Some(editor);
                                     this.open_recording = Some((path, s));
+                                    this.load_words(std::path::PathBuf::from(&dir), cx);
+                                    this.sync_word_editor(cx);
                                     this.error = None;
                                 }
                                 Err(e) => this.error = Some(format!("{e:#}")),
@@ -982,10 +1055,7 @@ impl Render for MainWindow {
 
 impl Drop for MainWindow {
     fn drop(&mut self) {
-        if let Some(mut child) = self.playback.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.stop_playback();
     }
 }
 

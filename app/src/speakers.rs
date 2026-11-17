@@ -1,6 +1,7 @@
 //! Recording-local speaker editing. Automatic evidence stays in the core library.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gpui::{
     Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle, Window, div, prelude::*, px,
@@ -10,7 +11,9 @@ use kikimimic_core::annotations::{self, AnnotationFile, Annotations, ReviewState
 use kikimimic_core::library::{self, Session};
 
 use crate::widgets::text_input::TextInput;
+use crate::window::words::{self, Playback, WordAction};
 use crate::window::{button, mm_ss};
+use kikimimic_core::word_timing::WordTiming;
 
 pub struct Seek(pub u64);
 
@@ -22,17 +25,38 @@ pub struct SpeakerEditor {
     saved: Annotations,
     name_input: Entity<TextInput>,
     name_baseline: String,
+    name_source: String,
     participant: Option<String>,
     participants_open: bool,
     selected: Option<usize>,
     scroll: ScrollHandle,
     message: Option<String>,
     error: Option<String>,
+    word_data: Option<Arc<WordTiming>>,
+    word_editing: bool,
+    word_playback: Option<Playback>,
 }
 
 impl EventEmitter<Seek> for SpeakerEditor {}
+impl EventEmitter<WordAction> for SpeakerEditor {}
 
 impl SpeakerEditor {
+    pub(crate) fn set_word_timing(
+        &mut self,
+        data: Option<Arc<WordTiming>>,
+        editing: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.word_data = data;
+        self.word_editing = editing;
+        cx.notify();
+    }
+
+    pub(crate) fn set_word_playback(&mut self, playback: Option<Playback>, cx: &mut Context<Self>) {
+        self.word_playback = playback;
+        cx.notify();
+    }
+
     pub fn new(dir: PathBuf, raw: Session, cx: &mut Context<Self>) -> Self {
         let name_input = cx.new(|cx| TextInput::new("表示名（空欄で名前を解除）", cx));
         cx.observe(&name_input, |_, _, cx| cx.notify()).detach();
@@ -44,12 +68,16 @@ impl SpeakerEditor {
             saved: Annotations::default(),
             name_input,
             name_baseline: String::new(),
+            name_source: String::new(),
             participant: None,
             participants_open: true,
             selected: None,
             scroll: ScrollHandle::new(),
             message: None,
             error: None,
+            word_data: None,
+            word_editing: false,
+            word_playback: None,
         };
         editor.load_file();
         editor
@@ -100,14 +128,18 @@ impl SpeakerEditor {
                 let dirty = self.is_dirty(cx);
                 if source != self.source {
                     // Stage typed names in the OLD namespace before changing it.
-                    if let Err(e) = self.stage_name(cx) {
-                        self.error = Some(e.to_string());
-                        cx.notify();
-                        return;
+                    match self.stage_name(cx) {
+                        Ok(()) => {
+                            self.participant = None;
+                            self.name_baseline.clear();
+                            self.name_input.update(cx, |input, cx| input.clear(cx));
+                        }
+                        Err(e) => {
+                            self.error = Some(format!(
+                                "旧結果の名前入力を保持しています: {e}。名前を修正して保存するか、変更を破棄してください。"
+                            ));
+                        }
                     }
-                    self.participant = None;
-                    self.name_baseline.clear();
-                    self.name_input.update(cx, |input, cx| input.clear(cx));
                     self.message = Some(
                         "話者分離結果が変わりました。旧結果の名前・割当ては再確認してください。"
                             .into(),
@@ -128,7 +160,7 @@ impl SpeakerEditor {
     fn stage_name(&mut self, cx: &gpui::App) -> anyhow::Result<()> {
         if let (Some(id), Some(file)) = (&self.participant, &mut self.file) {
             file.annotations
-                .rename(&self.source, id, self.name_input.read(cx).text())?;
+                .rename(&self.name_source, id, self.name_input.read(cx).text())?;
             self.name_baseline = self.name_input.read(cx).text().to_string();
         }
         Ok(())
@@ -153,6 +185,7 @@ impl SpeakerEditor {
             .map(|n| n.name.clone())
             .unwrap_or_default();
         self.name_baseline = name.clone();
+        self.name_source = self.source.clone();
         self.name_input
             .update(cx, |input, cx| input.set_text(name, cx));
         self.participant = Some(id);
@@ -535,6 +568,16 @@ impl Render for SpeakerEditor {
                 );
                 row = row.child(choices);
             }
+            if let Some(timed) = self.word_data.as_ref().and_then(|data| data.lines.get(i)) {
+                row = row.child(words::word_line(
+                    i,
+                    line,
+                    timed,
+                    self.word_editing,
+                    self.word_playback.as_ref(),
+                    cx,
+                ));
+            }
             transcript = transcript.child(row);
         }
         col.child(transcript).into_any_element()
@@ -574,6 +617,64 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[gpui::test]
+    fn word_controls_share_the_edited_transcript_and_emit_recording_positions(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        let (editor, cx) = cx.add_window_view(|_, cx| fixture.editor(cx));
+        let actions = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received = actions.clone();
+        editor
+            .update(cx, |_, cx| {
+                cx.subscribe_self(move |_, event: &WordAction, _| {
+                    received.lock().unwrap().push(event.clone());
+                })
+            })
+            .detach();
+        editor.update(cx, |editor, cx| {
+            let data: WordTiming = serde_json::from_value(serde_json::json!({
+                "schema": 1, "fingerprint": "render-fixture", "source": "fixture", "model": "fixture",
+                "lines": [{ "words": [
+                    { "text": "最初", "timing": { "start_ms": 100, "end_ms": 200 } },
+                    { "text": "の語", "timing": { "start_ms": 250, "end_ms": 400 } }
+                ], "breaks": [] }]
+            })).unwrap();
+            editor.set_word_timing(Some(Arc::new(data)), true, cx);
+        });
+        cx.run_until_parked();
+        for selector in [
+            "word-seek-0-1",
+            "word-boundary-0-1",
+            "assign-0",
+            "choice-0-1",
+            "speaker-save",
+        ] {
+            let bounds = cx
+                .debug_bounds(selector)
+                .expect("rendered integrated control");
+            cx.simulate_click(bounds.center(), Default::default());
+            cx.run_until_parked();
+        }
+        assert_eq!(
+            *actions.lock().unwrap(),
+            [
+                WordAction::Seek {
+                    position: 250,
+                    lane: "mic".into()
+                },
+                WordAction::ToggleBreak { line: 0, word: 1 },
+            ]
+        );
+        assert!(cx.debug_bounds("word-seek-0-1").is_some());
+        assert_eq!(
+            library::read(&fixture.0).unwrap().lines[0]
+                .speaker
+                .as_deref(),
+            Some("speaker_1")
+        );
     }
 
     #[gpui::test]
@@ -686,6 +787,56 @@ mod tests {
             assert_eq!(
                 std::fs::read_to_string(fixture.0.join(annotations::FILE)).unwrap(),
                 "broken"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn invalid_name_draft_does_not_block_new_evidence_or_move_it_to_a_new_speaker_namespace(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        let editor = cx.new(|cx| fixture.editor(cx));
+        editor.update(cx, |editor, cx| {
+            editor.choose_participant("speaker_0".into(), cx);
+            let old_source = editor.source.clone();
+            editor
+                .name_input
+                .update(cx, |input, cx| input.set_text("名".repeat(101), cx));
+            editor.set_row(0, Some("speaker_1".into()), true, cx);
+            std::fs::create_dir_all(fixture.0.join("postprocess")).unwrap();
+            std::fs::write(
+                fixture.0.join(kikimimic_core::postprocess::RTTM),
+                "SPEAKER mix 1 0 2 <NA> <NA> speaker_0 <NA> <NA>\n",
+            )
+            .unwrap();
+            let transcript = std::fs::read_to_string(fixture.0.join("transcript.jsonl")).unwrap();
+            std::fs::write(
+                fixture.0.join(kikimimic_core::postprocess::TRANSCRIPT),
+                transcript.replace("first", "new evidence"),
+            )
+            .unwrap();
+            editor.refresh_evidence(cx);
+            assert_ne!(editor.source, old_source);
+            assert_eq!(editor.raw.lines[0].text, "new evidence");
+            assert_eq!(editor.name_input.read(cx).text().chars().count(), 101);
+            assert_eq!(editor.name_source, old_source);
+            assert_eq!(
+                editor.file.as_ref().unwrap().annotations.corrections.len(),
+                1
+            );
+            editor
+                .name_input
+                .update(cx, |input, cx| input.set_text("旧結果の名前", cx));
+            editor.save(cx);
+            assert!(editor.error.is_none());
+            let doc = &editor.file.as_ref().unwrap().annotations;
+            assert_eq!(doc.names[0].source, old_source);
+            assert_ne!(
+                library::read(&fixture.0).unwrap().lines[0]
+                    .speaker
+                    .as_deref(),
+                Some("旧結果の名前")
             );
         });
     }
