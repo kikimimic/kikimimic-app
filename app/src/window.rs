@@ -917,6 +917,15 @@ impl Render for MainWindow {
     }
 }
 
+impl Drop for MainWindow {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.playback.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -934,14 +943,5 @@ mod tests {
         assert_eq!(codes(&p), ["ko"]);
         toggle_spoken(&mut p, "ko");
         assert_eq!(codes(&p), ["ko"], "the last language stays");
-    }
-}
-
-impl Drop for MainWindow {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.playback.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
     }
 }
