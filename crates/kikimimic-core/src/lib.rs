@@ -23,6 +23,8 @@ pub mod meeting_qa;
 
 pub mod minutes;
 
+pub mod meeting;
+
 mod local_agreement;
 mod mix;
 pub mod postprocess;
