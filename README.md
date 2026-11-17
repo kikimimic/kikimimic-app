@@ -72,6 +72,10 @@ Development settings:
 
 ## Recordings
 
+The Recordings view imports WAV, M4A and MP3 with a persistent sequential queue,
+and can join matching WAVs in a user-selected order. See the
+[audio import guide](docs/audio-import.md) for settings, retry and file-level resume.
+
 Each session gets a folder under `~/Music/kikimimic/<yyyyMMddHHmmss>/`:
 
 - `mic.wav`, `speaker.wav`, `mix.wav` — 48 kHz mono 16-bit, same length, same timeline

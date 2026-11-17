@@ -56,6 +56,7 @@ pub struct AppState {
     pub source_message: Option<SourceMessage>,
     /// Speaker labelling of a recording, and how far it got.
     pub post_process: Option<(PathBuf, PostProcessState)>,
+    pub imports: kikimimic_core::imports::ImportQueue,
 }
 
 impl Default for AppState {
@@ -68,6 +69,7 @@ impl Default for AppState {
             question: None,
             source_message: None,
             post_process: None,
+            imports: Default::default(),
         }
     }
 }
@@ -75,6 +77,7 @@ impl Default for AppState {
 impl AppState {
     pub fn apply(&mut self, event: Event) {
         match event {
+            Event::Imports(queue) => self.imports = queue,
             Event::Transcript {
                 lane,
                 utterance,
@@ -315,5 +318,20 @@ mod tests {
             s.source_message,
             Some(SourceMessage::Switched("AirPods".into()))
         );
+    }
+
+    #[test]
+    fn import_errors_do_not_replace_the_live_session_state() {
+        let mut s = AppState {
+            phase: Phase::Listening,
+            ..AppState::default()
+        };
+        let queue = kikimimic_core::imports::ImportQueue {
+            error: Some("stop the live session before resuming imports".into()),
+            ..Default::default()
+        };
+        s.apply(Event::Imports(queue.clone()));
+        assert_eq!(s.phase, Phase::Listening);
+        assert_eq!(s.imports, queue);
     }
 }

@@ -1,5 +1,7 @@
 //! The main window: session, recordings, models and settings.
 
+mod imports;
+
 use std::time::Duration;
 
 use gpui::{
@@ -39,6 +41,8 @@ pub struct MainWindow {
     downloads: Downloads,
     calendar: Entity<Calendar>,
     recordings: Vec<Recording>,
+    import_draft: Vec<std::path::PathBuf>,
+    imports_completed: usize,
     open_recording: Option<(std::path::PathBuf, library::Session)>,
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
@@ -107,6 +111,25 @@ impl MainWindow {
     ) -> Self {
         cx.observe(&calendar, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |this: &mut Self, state, cx| {
+            let completed = state
+                .read(cx)
+                .imports
+                .jobs
+                .iter()
+                .filter(|j| {
+                    matches!(
+                        j.state,
+                        kikimimic_core::imports::ImportState::Done
+                            | kikimimic_core::imports::ImportState::Skipped
+                    )
+                })
+                .count();
+            if completed != this.imports_completed {
+                this.imports_completed = completed;
+                if this.tab == Tab::Recordings {
+                    this.recordings = library::list(&crate::paths::recordings_dir());
+                }
+            }
             this.scroll.scroll_to_bottom();
             if state.read(cx).is_listening()
                 && let Some(mut child) = this.playback.take()
@@ -136,6 +159,8 @@ impl MainWindow {
             downloads: Downloads::default(),
             calendar,
             recordings: Vec::new(),
+            import_draft: Vec::new(),
+            imports_completed: 0,
             open_recording: None,
             playback: None,
             wrong,
@@ -512,6 +537,7 @@ impl MainWindow {
             }
             return col.into_any_element();
         }
+        col = col.child(self.imports_view(cx));
         if self.recordings.is_empty() {
             return col
                 .child(div().text_color(gray()).child(ui.no_recordings()))

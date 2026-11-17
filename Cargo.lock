@@ -2707,6 +2707,7 @@ dependencies = [
  "getrandom 0.3.4",
  "gpui",
  "gpui_platform",
+ "hound",
  "keyring",
  "kikimimic-asr-apple",
  "kikimimic-asr-speech",
