@@ -21,6 +21,8 @@ pub mod language;
 pub mod library;
 pub mod meeting_qa;
 
+pub mod minutes;
+
 mod local_agreement;
 mod mix;
 pub mod postprocess;
