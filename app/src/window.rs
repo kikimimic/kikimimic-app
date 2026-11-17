@@ -38,6 +38,7 @@ pub struct MainWindow {
     scroll: ScrollHandle,
     downloads: Downloads,
     calendar: Entity<Calendar>,
+    evaluation: Entity<crate::evaluation::EvaluationPanel>,
     recordings: Vec<Recording>,
     open_recording: Option<(std::path::PathBuf, library::Session)>,
     wrong: Entity<TextInput>,
@@ -128,6 +129,14 @@ impl MainWindow {
         let ui = Ui::detect();
         let wrong = cx.new(|cx| TextInput::new(ui.misrecognized_as(), cx));
         let right = cx.new(|cx| TextInput::new(ui.correct_spelling(), cx));
+        let evaluation = cx.new(crate::evaluation::EvaluationPanel::new);
+        cx.subscribe(
+            &evaluation,
+            |this, _, seek: &crate::evaluation::Seek, cx| {
+                this.play_from(&seek.dir, seek.position_ms, cx);
+            },
+        )
+        .detach();
         Self {
             kkm,
             state,
@@ -135,6 +144,7 @@ impl MainWindow {
             scroll: ScrollHandle::new(),
             downloads: Downloads::default(),
             calendar,
+            evaluation,
             recordings: Vec::new(),
             open_recording: None,
             playback: None,
@@ -395,6 +405,12 @@ impl MainWindow {
     }
 
     fn play_recording(&mut self, position: u64, cx: &mut Context<Self>) {
+        if let Some((dir, _)) = &self.open_recording {
+            self.play_from(&dir.clone(), position, cx);
+        }
+    }
+
+    fn play_from(&mut self, dir: &std::path::Path, position: u64, cx: &mut Context<Self>) {
         if self.state.read(cx).is_listening() {
             self.error = Some("Stop recording before playback".into());
             cx.notify();
@@ -404,7 +420,7 @@ impl MainWindow {
             let _ = child.kill();
             let _ = child.wait();
         }
-        if let Some((dir, _)) = &self.open_recording {
+        {
             let script =
                 std::env::temp_dir().join(format!("kikimimic-player-{}.swift", std::process::id()));
             let result = std::fs::write(&script, include_str!("playback.swift")).and_then(|_| {
@@ -843,7 +859,9 @@ impl MainWindow {
                 this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
             })),
         );
-        col.child(self.calendar_section(cx)).into_any_element()
+        col.child(self.calendar_section(cx))
+            .child(self.evaluation.clone())
+            .into_any_element()
     }
 
     fn calendar_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
