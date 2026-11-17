@@ -18,6 +18,8 @@ pub mod imports;
 
 pub mod language;
 pub mod library;
+pub mod meeting_qa;
+
 mod local_agreement;
 mod mix;
 pub mod postprocess;
