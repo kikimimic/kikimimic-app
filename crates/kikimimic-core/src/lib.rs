@@ -25,6 +25,8 @@ pub mod minutes;
 
 pub mod meeting;
 
+pub mod metrics;
+
 mod local_agreement;
 mod mix;
 pub mod postprocess;
