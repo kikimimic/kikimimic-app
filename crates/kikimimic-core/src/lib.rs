@@ -24,6 +24,7 @@ pub mod postprocess;
 mod resample;
 mod runtime;
 mod scheduler;
+pub mod search;
 pub mod settings;
 pub mod sim;
 pub mod store;
