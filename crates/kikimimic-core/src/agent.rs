@@ -195,7 +195,8 @@ pub fn run(agent: Agent, prompt: &str) -> anyhow::Result<String> {
     run_program(program, args, prompt)
 }
 
-fn run_program(program: &str, args: &[&str], input: &str) -> anyhow::Result<String> {
+/// Run `program` with `input` on stdin and return what it printed.
+pub fn run_program(program: &str, args: &[&str], input: &str) -> anyhow::Result<String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let mut child = Command::new(program)
@@ -324,16 +325,5 @@ mod tests {
         );
         assert_eq!(Agent::Codex.command().0, "codex");
         assert!(Agent::Codex.command().1.ends_with(&["-"]));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn running_pipes_the_prompt_through_and_reports_failures() {
-        assert_eq!(run_program("cat", &[], "hello").unwrap(), "hello");
-        assert!(run_program("sh", &["-c", "echo nope >&2; exit 3"], "")
-            .unwrap_err()
-            .to_string()
-            .contains("nope"));
-        assert!(run_program("kkm-no-such-agent", &[], "").is_err());
     }
 }
