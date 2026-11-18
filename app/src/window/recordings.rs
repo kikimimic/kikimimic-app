@@ -1,4 +1,4 @@
-//! Recordings: the list, one recording's detail, and playback.
+//! Opening a recording, and playing it back.
 
 use super::*;
 
@@ -123,6 +123,9 @@ impl MainWindow {
                 cx.observe(&editor, |_, _, cx| cx.notify()).detach();
                 self.speaker_editor = Some(editor);
                 self.open_recording = Some((path.clone(), s));
+                self.detail_tab = super::detail::DetailTab::Text;
+                self.detail = Default::default();
+                self.refresh_detail(cx);
                 self.load_words(path, cx);
                 self.sync_word_editor(cx);
                 self.error = None;
@@ -130,74 +133,5 @@ impl MainWindow {
             Err(e) => self.error = Some(format!("{e:#}")),
         }
         cx.notify();
-    }
-
-    pub(super) fn recordings_view(&self, cx: &mut Context<Self>) -> AnyElement {
-        let ui = self.ui;
-        let mut col = super::shell::column();
-        let Some((dir, _session)) = &self.open_recording else {
-            return div()
-                .size_full()
-                .child(col.child(div().pt_6().text_color(gray()).child(ui.pick_a_recording())))
-                .into_any_element();
-        };
-        let labelling = match &self.state.read(cx).post_process {
-            Some((d, state)) if d == dir => Some(state.clone()),
-            _ => None,
-        };
-        let dir = dir.clone();
-        let mut bar = div().flex().gap_2().items_center();
-        for (id, label, extension) in [
-            ("export-md", "文字起こし .md", "md"),
-            ("export-srt", "字幕 .srt", "srt"),
-        ] {
-            let path = dir.clone();
-            bar = bar.child(button(id, label, false).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    let result = library::read(&path).and_then(|session| {
-                        let text = if extension == "md" {
-                            kikimimic_core::export::markdown(&session)
-                        } else {
-                            kikimimic_core::export::srt(&session)
-                        };
-                        std::fs::write(path.join(format!("transcript.{extension}")), text)
-                            .map_err(Into::into)
-                    });
-                    this.error = result.err().map(|e| e.to_string());
-                    if this.error.is_none() {
-                        let _ = std::process::Command::new("open").arg(&path).spawn();
-                    }
-                    cx.notify();
-                },
-            )));
-        }
-        bar = match labelling {
-            Some(PostProcessState::Running) => {
-                bar.child(div().text_color(gray()).child(ui.identifying()))
-            }
-            other => {
-                let diarize_dir = dir.clone();
-                if let Some(PostProcessState::Failed { message }) = other {
-                    bar = bar.child(div().text_color(rgb(0xcf222e)).child(message));
-                }
-                bar.child(button("diarize", ui.identify_speakers(), false).on_click(
-                    cx.listener(move |this, _, _, _| this.kkm.diarize(diarize_dir.clone())),
-                ))
-            }
-        };
-        bar = bar.child(
-            button("play-audio", "Play audio", false)
-                .on_click(cx.listener(|this, _, _, cx| this.play_recording(0, cx))),
-        );
-        col = col.child(bar).child(self.word_toolbar(dir.clone(), cx));
-        if let Some(editor) = &self.speaker_editor {
-            col = col.child(editor.clone());
-        }
-        div()
-            .id("recording")
-            .size_full()
-            .overflow_y_scroll()
-            .child(col)
-            .into_any_element()
     }
 }

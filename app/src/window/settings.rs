@@ -7,6 +7,7 @@ pub(super) enum Section {
     #[default]
     General,
     Glossary,
+    Export,
     Link,
     Models,
     Advanced,
@@ -101,6 +102,7 @@ impl MainWindow {
         for (section, id, label) in [
             (Section::General, "set-general", ui.section_general()),
             (Section::Glossary, "set-glossary", ui.glossary()),
+            (Section::Export, "set-export", ui.step_export()),
             (Section::Link, "set-link", ui.section_link()),
             (Section::Models, "set-models", ui.tab_models()),
             (Section::Advanced, "set-advanced", ui.section_advanced()),
@@ -117,6 +119,7 @@ impl MainWindow {
         let body = match self.section {
             Section::General => self.general_section(cx).into_any_element(),
             Section::Glossary => self.glossary_section(cx).into_any_element(),
+            Section::Export => self.export_section(cx).into_any_element(),
             Section::Link => self.calendar_section(cx).into_any_element(),
             Section::Models => self.models_view(cx),
             Section::Advanced => self.evaluation.clone().into_any_element(),
@@ -308,6 +311,304 @@ impl MainWindow {
                 this.update_settings(|s| s.save_face_to_face = !s.save_face_to_face, cx)
             })),
         )
+    }
+
+    /// Put the selected destination's text into the editing fields.
+    pub(super) fn load_destination_fields(&mut self, cx: &mut Context<Self>) {
+        let dests = self.kkm.settings().destinations;
+        let Some(d) = dests.get(self.dest_selected) else {
+            return;
+        };
+        let (name, folder, file) = (d.name.clone(), d.folder.clone(), d.file_name.clone());
+        self.dest_name.update(cx, |i, cx| i.set_text(name, cx));
+        self.dest_folder.update(cx, |i, cx| i.set_text(folder, cx));
+        self.dest_file.update(cx, |i, cx| i.set_text(file, cx));
+    }
+
+    fn update_destination(
+        &mut self,
+        change: impl FnOnce(&mut kikimimic_core::destinations::Destination),
+        cx: &mut Context<Self>,
+    ) {
+        let i = self.dest_selected;
+        self.update_settings(
+            |s| {
+                if let Some(d) = s.destinations.get_mut(i) {
+                    change(d);
+                }
+            },
+            cx,
+        );
+        self.refresh_recordings(cx);
+    }
+
+    fn export_section(&self, cx: &mut Context<Self>) -> gpui::Div {
+        use kikimimic_core::destinations::{Destination, Format, VARIABLES, When};
+        let ui = self.ui;
+        let dests = self.kkm.settings().destinations;
+        let mut col = div().flex().flex_col().gap_3().child(
+            div()
+                .text_size(px(12.))
+                .text_color(gray())
+                .child(ui.destinations_help()),
+        );
+        let mut list = div().flex().flex_wrap().gap_1();
+        for (i, d) in dests.iter().enumerate() {
+            let label = if d.enabled {
+                d.name.clone()
+            } else {
+                format!("{}（{}）", d.name, ui.off())
+            };
+            list = list.child(
+                button(("dest-pick", i), label, self.dest_selected == i).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.dest_selected = i;
+                        this.load_destination_fields(cx);
+                        cx.notify();
+                    },
+                )),
+            );
+        }
+        list = list.child(button("dest-add", ui.add(), false).on_click(cx.listener(
+            |this, _, _, cx| {
+                this.update_settings(
+                    |s| {
+                        let n = s.destinations.len() + 1;
+                        s.destinations.push(Destination {
+                            id: format!("dest-{}", chrono::Local::now().format("%Y%m%d%H%M%S")),
+                            name: format!("書き出し先 {n}"),
+                            folder: "~/Documents/Kikimimic".into(),
+                            file_name: "{{date}} {{title}}.md".into(),
+                            format: Format::Template,
+                            when: When::Manual,
+                            enabled: true,
+                            template: kikimimic_core::destinations::DEFAULT_TEMPLATE.into(),
+                            template_file: None,
+                        })
+                    },
+                    cx,
+                );
+                this.dest_selected = this.kkm.settings().destinations.len().saturating_sub(1);
+                this.load_destination_fields(cx);
+            },
+        )));
+        col = col.child(list);
+        let Some(d) = dests.get(self.dest_selected) else {
+            return col;
+        };
+        let field = |label: &'static str, input: Entity<TextInput>| {
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(div().w(px(120.)).flex_none().child(label))
+                .child(div().flex_1().child(input))
+        };
+        let choice =
+            |row: gpui::Div,
+             id: &'static str,
+             n: usize,
+             label: &'static str,
+             on: bool,
+             f: Box<dyn Fn(&mut Destination)>| {
+                row.child(button((id, n), label, on).on_click(
+                    cx.listener(move |this, _, _, cx| this.update_destination(|d| f(d), cx)),
+                ))
+            };
+        let mut formats = div().flex().gap_1();
+        for (n, (format, label)) in [
+            (Format::Template, ui.format_template()),
+            (Format::Srt, "SRT"),
+            (Format::Json, "JSON"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let on = d.format == format;
+            formats = choice(
+                formats,
+                "dest-format",
+                n,
+                label,
+                on,
+                Box::new(move |d| d.format = format.clone()),
+            );
+        }
+        let mut whens = div().flex().gap_1();
+        for (n, (when, label)) in [
+            (When::Manual, ui.when_manual()),
+            (When::AfterMinutes, ui.when_minutes()),
+            (When::AfterRecording, ui.when_recording()),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let on = d.when == when;
+            whens = choice(
+                whens,
+                "dest-when",
+                n,
+                label,
+                on,
+                Box::new(move |d| d.when = when.clone()),
+            );
+        }
+        let row = |label: &'static str, content: gpui::Div| {
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(div().w(px(120.)).flex_none().child(label))
+                .child(content)
+        };
+        let mut editor = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .rounded(px(6.))
+            .border_1()
+            .border_color(rgb(0xd0d7de))
+            .child(field(ui.dest_name(), self.dest_name.clone()))
+            .child(field(ui.dest_folder(), self.dest_folder.clone()).child(
+                button("dest-folder-pick", ui.choose(), false).on_click(cx.listener(
+                    |_, _, _, cx| {
+                        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+                            files: false,
+                            directories: true,
+                            multiple: false,
+                            prompt: None,
+                        });
+                        cx.spawn(async move |this, cx| {
+                            if let Ok(Ok(Some(paths))) = receiver.await
+                                && let Some(p) = paths.into_iter().next()
+                            {
+                                let _ = this.update(cx, |this, cx| {
+                                    let folder = p.display().to_string();
+                                    this.dest_folder.update(cx, |i, cx| i.set_text(folder, cx));
+                                });
+                            }
+                        })
+                        .detach();
+                    },
+                )),
+            ))
+            .child(field(ui.dest_file_name(), self.dest_file.clone()))
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        button("dest-delete", ui.remove(), false).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                let i = this.dest_selected;
+                                this.update_settings(
+                                    |s| {
+                                        if i < s.destinations.len() {
+                                            s.destinations.remove(i);
+                                        }
+                                    },
+                                    cx,
+                                );
+                                this.dest_selected = 0;
+                                this.load_destination_fields(cx);
+                                this.refresh_recordings(cx);
+                            },
+                        )),
+                    )
+                    .child(button("dest-apply", ui.apply(), true).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            let name = this.dest_name.read(cx).text().trim().to_string();
+                            let folder = this.dest_folder.read(cx).text().trim().to_string();
+                            let file = this.dest_file.read(cx).text().trim().to_string();
+                            if name.is_empty() || folder.is_empty() || file.is_empty() {
+                                return;
+                            }
+                            this.update_destination(
+                                |d| {
+                                    d.name = name;
+                                    d.folder = folder;
+                                    d.file_name = file;
+                                },
+                                cx,
+                            );
+                        },
+                    ))),
+            )
+            .child(row(ui.dest_format(), formats))
+            .child(row(ui.dest_when(), whens))
+            .child(row(
+                ui.dest_enabled(),
+                div().child(
+                    button(
+                        "dest-enabled",
+                        if d.enabled { ui.on() } else { ui.off() },
+                        d.enabled,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_destination(|d| d.enabled = !d.enabled, cx)
+                    })),
+                ),
+            ));
+        if d.format == Format::Template {
+            let source = match &d.template_file {
+                Some(f) => f.display().to_string(),
+                None => ui.template_inline().to_string(),
+            };
+            editor = editor.child(row(
+                ui.dest_template(),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_size(px(12.)).child(source))
+                    .child(
+                        button("tpl-file", ui.choose_file(), false).on_click(cx.listener(
+                            |_, _, _, cx| {
+                                let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+                                    files: true,
+                                    directories: false,
+                                    multiple: false,
+                                    prompt: None,
+                                });
+                                cx.spawn(async move |this, cx| {
+                                    if let Ok(Ok(Some(paths))) = receiver.await
+                                        && let Some(p) = paths.into_iter().next()
+                                    {
+                                        let _ = this.update(cx, |this, cx| {
+                                            this.update_destination(
+                                                |d| d.template_file = Some(p),
+                                                cx,
+                                            )
+                                        });
+                                    }
+                                })
+                                .detach();
+                            },
+                        )),
+                    )
+                    .when(d.template_file.is_some(), |r| {
+                        r.child(
+                            button("tpl-inline", ui.template_use_inline(), false).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.update_destination(|d| d.template_file = None, cx)
+                                }),
+                            ),
+                        )
+                    }),
+            ));
+            editor = editor.child(div().text_size(px(12.)).text_color(gray()).child(format!(
+                    "{} {}",
+                    ui.template_variables(),
+                    VARIABLES
+                        .iter()
+                        .map(|v| format!("{{{{{v}}}}}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )));
+        }
+        col.child(editor)
     }
 
     fn glossary_section(&self, cx: &mut Context<Self>) -> gpui::Div {

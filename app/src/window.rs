@@ -1,6 +1,7 @@
 //! The main window: a status bar, the meeting timeline, one screen in a
 //! width-limited column, and a status line (the v4 layout).
 
+mod detail;
 mod imports;
 mod live;
 mod recordings;
@@ -54,6 +55,12 @@ pub struct MainWindow {
     hits: Vec<kikimimic_core::search::Hit>,
     list_filter: shell::ListFilter,
     section: settings::Section,
+    detail_tab: detail::DetailTab,
+    detail: detail::DetailCache,
+    dest_selected: usize,
+    dest_name: Entity<TextInput>,
+    dest_folder: Entity<TextInput>,
+    dest_file: Entity<TextInput>,
     show_older: bool,
     /// What each recording still waits for, keyed by its directory.
     stages: std::collections::HashMap<std::path::PathBuf, Option<kikimimic_core::timeline::Stage>>,
@@ -219,6 +226,12 @@ impl MainWindow {
             hits: Vec::new(),
             list_filter: shell::ListFilter::All,
             section: settings::Section::General,
+            detail_tab: detail::DetailTab::Text,
+            detail: Default::default(),
+            dest_selected: 0,
+            dest_name: cx.new(|cx| TextInput::new("", cx)),
+            dest_folder: cx.new(|cx| TextInput::new("", cx)),
+            dest_file: cx.new(|cx| TextInput::new("", cx)),
             show_older: false,
             stages: Default::default(),
             scroll: ScrollHandle::new(),
@@ -241,6 +254,7 @@ impl MainWindow {
             ui,
         };
         this.refresh_recordings(cx);
+        this.load_destination_fields(cx);
         this
     }
 
@@ -328,7 +342,7 @@ impl Render for MainWindow {
         self.search_if_changed(cx);
         let body = match self.view {
             View::Live => self.session(cx),
-            View::Recording => self.recordings_view(cx),
+            View::Recording => self.recording_detail(cx),
             View::Imports => div()
                 .id("imports")
                 .size_full()
@@ -374,3 +388,6 @@ impl Drop for MainWindow {
         self.stop_playback();
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -121,6 +121,53 @@ texts! {
     section_advanced: "Advanced", "詳細";
     section_recording: "Recording", "録音";
     saved_automatically: "Changes are saved automatically", "変更は自動で保存";
+    destinations_help: "Write each meeting to a folder you choose, under a file name and in a format you choose. A note vault (Obsidian or any other) is just a folder.", "決めたフォルダに、決めたファイル名と形式で会議を書き出します。Obsidian などのノートの保管庫も、ただのフォルダとして扱います。";
+    dest_name: "Name", "名前";
+    dest_folder: "Folder", "フォルダ";
+    dest_file_name: "File name", "ファイル名";
+    dest_format: "Format", "形式";
+    dest_when: "Write", "書き出すとき";
+    dest_enabled: "Enabled", "使う";
+    dest_template: "Template", "テンプレート";
+    format_template: "Template (Markdown / text)", "テンプレート（Markdown / テキスト）";
+    when_manual: "Only when I ask", "手動のみ";
+    when_minutes: "When minutes are ready", "議事録ができたら";
+    when_recording: "When a recording or import ends", "録音・取り込みが終わったら";
+    template_inline: "Built-in template", "既定のテンプレート";
+    template_use_inline: "Use the built-in one", "既定に戻す";
+    template_variables: "Variables:", "変数:";
+    choose: "Choose…", "選ぶ…";
+    choose_file: "Use a file…", "ファイルを選ぶ…";
+    apply: "Apply", "適用";
+    on: "On", "オン";
+    off: "Off", "オフ";
+    step_transcript: "Transcript", "文字起こし";
+    step_speakers: "Speakers", "話者";
+    step_minutes: "Minutes", "議事録";
+    step_export: "Export", "書き出し";
+    write_pending: "Write to destinations", "書き出し先に書き出す";
+    minutes_not_made: "No minutes yet", "議事録はまだありません";
+    not_transcribed_yet: "Not transcribed yet", "まだ文字起こしされていません";
+    all_done: "Done", "完了";
+    play: "▶ Play", "▶ 再生";
+    pause: "■ Stop", "■ 停止";
+    click_a_word: "Click a word to play from it", "単語をクリックするとそこから再生";
+    tab_text: "Transcript", "本文";
+    tab_subtitles: "Subtitles", "字幕";
+    tab_stats: "Statistics", "統計";
+    minutes_summary: "Summary", "要約";
+    minutes_decisions: "Decisions", "決定事項";
+    minutes_actions: "Action items", "宿題";
+    minutes_open: "Open questions", "未決事項";
+    loading: "Loading…", "読み込み中…";
+    export_fresh: "Up to date", "最新";
+    export_stale: "Out of date", "古い";
+    export_not_written: "Not written", "未書き出し";
+    edit_destinations: "Edit destinations…", "書き出し先を編集…";
+    write: "Write", "書き出す";
+    rewrite: "Write again", "書き出し直す";
+    lane_me: "Me", "自分";
+    lane_them: "Them", "相手";
 }
 
 impl Ui {
@@ -243,6 +290,33 @@ impl Ui {
 }
 
 impl Ui {
+    pub fn speech_share(self, percent: f64) -> String {
+        match self {
+            Self::En => format!("{percent:.0}% of speech"),
+            Self::Ja => format!("発話の割合 {percent:.0}%"),
+        }
+    }
+
+    pub fn lane_metrics(self, longest_s: f64, cpm: f64, questions: usize) -> String {
+        match self {
+            Self::En => {
+                format!("Longest {longest_s:.1} s · {cpm:.0} chars/min · {questions} questions")
+            }
+            Self::Ja => {
+                format!("最長の連続発話 {longest_s:.1} 秒 · {cpm:.0} 文字/分 · 質問 {questions}")
+            }
+        }
+    }
+
+    pub fn overlaps(self, n: usize) -> String {
+        match self {
+            Self::En => {
+                format!("{n} overlapping utterances (counted reliably only with headphones)")
+            }
+            Self::Ja => format!("重なった発話 {n}（ヘッドホン使用時だけ正しく数えられます）"),
+        }
+    }
+
     pub fn day(self, month: u32, day: u32, weekday: u32) -> String {
         const JA: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
         const EN: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

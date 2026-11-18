@@ -378,7 +378,8 @@ impl MainWindow {
                         .border_l_2()
                         .border_color(theme::fg());
                 }
-                list = list.child(row.on_click(
+                let selector = format!("timeline-{}", r.name);
+                list = list.child(row.debug_selector(move || selector.clone()).on_click(
                     cx.listener(move |this, _, _, cx| this.open_recording_dir(dir.clone(), cx)),
                 ));
             }
