@@ -419,3 +419,41 @@ fn a_recording_right_clicked_in_the_timeline_goes_to_the_trash(cx: &mut TestAppC
         "the trashed recording no longer stays open"
     );
 }
+
+#[gpui::test]
+fn cmd_enter_in_the_question_box_asks_like_the_button_but_enter_alone_does_not(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let mut settings = kkm.settings();
+    settings.agent = Some(kikimimic_core::agent::Agent::ClaudeCode);
+    kkm.update_settings(settings).unwrap();
+    cx.update(crate::widgets::text_input::bind_keys);
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        let mut w = MainWindow::new(kkm.clone(), state, calendar, cx);
+        w.run_agent = fake_agent;
+        w
+    });
+    cx.run_until_parked();
+    click(cx, "timeline-20261117100000");
+    click(cx, "tab-ask");
+    window.update_in(cx, |w, window, cx| {
+        w.ask
+            .input
+            .update(cx, |i, cx| i.set_text("何を始めた？", cx));
+        window.focus(&gpui::Focusable::focus_handle(&w.ask.input, cx), cx);
+    });
+    cx.simulate_keystrokes("enter");
+    window.read_with(cx, |w, cx| {
+        assert!(w.ask.pending.is_none(), "enter alone does not ask");
+        assert_eq!(w.ask.input.read(cx).text(), "何を始めた？");
+    });
+    cx.simulate_keystrokes(crate::widgets::text_input::SUBMIT_KEYS);
+    window.read_with(cx, |w, cx| {
+        assert!(matches!(w.ask.pending, Some(ask::Pending::Question { .. })));
+        assert!(w.ask.input.read(cx).text().is_empty());
+    });
+}

@@ -10,6 +10,7 @@ use kikimimic_core::meeting_qa::Answer;
 
 use super::*;
 use crate::theme;
+use crate::widgets::text_input;
 
 /// One question and, once it arrives, its answer with the quoted lines'
 /// positions (kept from the transcript the agent was shown).
@@ -291,12 +292,20 @@ impl MainWindow {
             col = col.child(row);
         }
         let d = dir.to_path_buf();
+        let enter_dir = d.clone();
         col.child(
             div()
                 .flex()
                 .gap_2()
                 .items_center()
-                .child(div().flex_1().child(self.ask.input.clone()))
+                .child(
+                    div()
+                        .flex_1()
+                        .on_action(cx.listener(move |this, _: &text_input::Submit, _, cx| {
+                            this.submit_question(enter_dir.clone(), cx)
+                        }))
+                        .child(self.ask.input.clone()),
+                )
                 .child(
                     button("ask-send", ui.ask(), false)
                         .debug_selector(|| "ask-send".into())
