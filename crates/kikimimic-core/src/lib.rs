@@ -9,6 +9,7 @@ pub mod asr;
 pub mod capture;
 pub mod catalog;
 mod conductor;
+pub mod destinations;
 pub mod diarization_evaluation;
 pub mod domain;
 pub mod engine;
