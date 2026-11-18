@@ -9,7 +9,7 @@ use crate::library::Session;
 use crate::meeting_qa::{Answer, Citation, Snapshot, Source};
 use crate::minutes::Minutes;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Agent {
     ClaudeCode,
