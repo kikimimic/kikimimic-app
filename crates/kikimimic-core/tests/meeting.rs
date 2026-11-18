@@ -230,3 +230,27 @@ fn a_recording_that_cannot_start_does_not_stop_the_transcript() {
     });
     assert!(noticed, "{:#?}", out.events);
 }
+
+#[test]
+fn each_lane_reports_how_loud_it_is_while_listening() {
+    let out = Scenario::new()
+        .lane(LaneRole::Mic, Fixture::tone(ms(2000)))
+        .lane(LaneRole::System, Fixture::silence(ms(2000)))
+        .stop_at(ms(2000))
+        .run();
+
+    let levels: Vec<_> = out
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Levels(l) => Some(l.clone()),
+            _ => None,
+        })
+        .collect();
+    // A few a second: enough for a meter, few enough not to flood the UI.
+    assert!((4..=12).contains(&levels.len()), "{}", levels.len());
+    let last = levels.last().unwrap();
+    let of = |name: &str| last.iter().find(|(l, _)| l.as_str() == name).unwrap().1;
+    assert!(of("mic") > 0.05, "{last:?}");
+    assert_eq!(of("speaker"), 0.0);
+}

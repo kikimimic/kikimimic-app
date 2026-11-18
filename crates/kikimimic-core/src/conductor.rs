@@ -89,7 +89,13 @@ struct Live {
     recorder: Option<SessionRecorder>,
     recording_dir: Option<PathBuf>,
     cadence: Duration,
+    /// When the lanes' levels are next reported.
+    next_levels: Duration,
 }
+
+/// How often the lanes' levels are reported: a meter that moves, without
+/// flooding the UI with events.
+const LEVELS_EVERY: Duration = Duration::from_millis(250);
 
 enum SessionPhase {
     Idle,
@@ -211,6 +217,7 @@ impl Conductor {
             recorder,
             recording_dir,
             cadence: start.cadence,
+            next_levels: now + LEVELS_EVERY,
         });
         self.notices.take_changed();
         out.push(Output::Emit(self.status()));
@@ -240,6 +247,15 @@ impl Conductor {
                         lane.next_step = now + live.cadence;
                         out.push(Output::Asr(AsrIn::Step(lane.id, spoken.clone())));
                     }
+                }
+                if now >= live.next_levels {
+                    live.next_levels = now + LEVELS_EVERY;
+                    let levels = live
+                        .lanes
+                        .iter_mut()
+                        .map(|l| (l.label.clone(), l.take_peak()))
+                        .collect();
+                    out.push(Output::Emit(Event::Levels(levels)));
                 }
                 if let Some(rec) = live.recorder.as_mut() {
                     rec.pump_mix();

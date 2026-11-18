@@ -55,6 +55,8 @@ pub(crate) struct Lane {
     /// The utterance currently being spoken on this lane, assigned at its
     /// first text and cleared when it finishes.
     pub current: Option<UtteranceId>,
+    /// Loudest sample since the level was last read, for the UI's meter.
+    peak: f32,
 }
 
 impl Lane {
@@ -84,6 +86,7 @@ impl Lane {
             stepping: false,
             silence: matches!(role, LaneRole::System).then(SilenceWatch::default),
             current: None,
+            peak: 0.0,
         })
     }
 
@@ -117,6 +120,7 @@ impl Lane {
             if self.mono.is_empty() {
                 break;
             }
+            self.peak = self.mono.iter().fold(self.peak, |p, s| p.max(s.abs()));
             if let Some(watch) = self.silence.as_mut() {
                 match watch.observe(&self.mono, now) {
                     Some(SilenceEvent::Broken) => notices.set(
@@ -148,6 +152,11 @@ impl Lane {
         }
         self.report_overruns(now, notices);
         Ok((!out.is_empty()).then(|| Pcm16k::assume_16k(out)))
+    }
+
+    /// The loudest sample since the last call, 0 to 1, then start over.
+    pub fn take_peak(&mut self) -> f32 {
+        std::mem::take(&mut self.peak).min(1.0)
     }
 
     /// Stop: what the resampler still holds.

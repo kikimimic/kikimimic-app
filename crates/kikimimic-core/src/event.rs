@@ -33,6 +33,9 @@ pub enum Event {
     /// A capture source needs a decision or reports one (output-device
     /// switching). Answer with `Kikimimic::decide_source`.
     Source(crate::capture::SourceEvent),
+    /// How loud each lane has been lately (peak, 0 to 1), a few times a
+    /// second while listening: proof the recording is hearing something.
+    Levels(Vec<(LaneLabel, f32)>),
     /// Speaker labelling of a finished recording (`Kikimimic::diarize`).
     PostProcess {
         recording: PathBuf,
