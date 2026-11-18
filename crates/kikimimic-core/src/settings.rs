@@ -25,6 +25,10 @@ pub struct Settings {
     /// Where recordings are written, under which name and in which format.
     #[serde(default = "crate::destinations::defaults")]
     pub destinations: Vec<crate::destinations::Destination>,
+    /// The coding agent questions and minutes go to; none until chosen,
+    /// because choosing one is choosing to send transcripts to its company.
+    #[serde(default)]
+    pub agent: Option<crate::agent::Agent>,
 }
 
 impl Settings {
@@ -37,6 +41,7 @@ impl Settings {
             clear_on_start: false,
             save_face_to_face: false,
             destinations: crate::destinations::defaults(),
+            agent: None,
         }
     }
 
@@ -106,6 +111,21 @@ mod tests {
         let p = path("roundtrip");
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p, c), s);
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn no_agent_is_chosen_until_the_user_picks_one() {
+        let c = Catalog::builtin();
+        assert_eq!(Settings::defaults(c).agent, None);
+        let p = path("agent");
+        let mut s = Settings::defaults(c);
+        s.agent = Some(crate::agent::Agent::Codex);
+        s.save(&p).unwrap();
+        assert_eq!(
+            Settings::load(&p, c).agent,
+            Some(crate::agent::Agent::Codex)
+        );
         std::fs::remove_file(p).unwrap();
     }
 

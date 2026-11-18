@@ -147,3 +147,64 @@ fn a_finished_recording_is_written_to_destinations_waiting_for_it(cx: &mut TestA
             .contains("定例を始めます")
     );
 }
+
+/// Stands in for `claude -p`: answers by quoting line 1, or drafts minutes.
+fn fake_agent(_: kikimimic_core::agent::Agent, prompt: &str) -> anyhow::Result<String> {
+    Ok(if prompt.contains("議事録") {
+        r#"{"items":[{"kind":"Summary","text":"定例を開始","evidence":[1],"owner":null,"deadline":null,"supersedes":null}]}"#.into()
+    } else {
+        r#"{"answer":"定例を始めると言いました","citations":[{"id":1,"quote":"定例を始めます"}]}"#
+            .into()
+    })
+}
+
+#[gpui::test]
+fn a_question_goes_to_the_agent_only_after_consent_and_comes_back_quoted(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let mut settings = kkm.settings();
+    settings.agent = Some(kikimimic_core::agent::Agent::ClaudeCode);
+    settings.destinations[0].when = kikimimic_core::destinations::When::AfterMinutes;
+    kkm.update_settings(settings).unwrap();
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        let mut w = MainWindow::new(kkm.clone(), state, calendar, cx);
+        w.run_agent = fake_agent;
+        w
+    });
+    cx.run_until_parked();
+    click(cx, "timeline-20261117100000");
+    click(cx, "tab-ask");
+    window.update(cx, |w, cx| {
+        w.ask
+            .input
+            .update(cx, |i, cx| i.set_text("何を始めた？", cx))
+    });
+    click(cx, "ask-send");
+    window.read_with(cx, |w, _| {
+        assert!(w.ask.entries.is_empty(), "nothing is sent before consent")
+    });
+    click(cx, "consent-send");
+    window.read_with(cx, |w, _| {
+        let reply = w.ask.entries[0].result.as_ref().unwrap().as_ref().unwrap();
+        assert!(reply.confirmed);
+        assert_eq!(reply.quotes, vec![(100, "定例を始めます".to_string())]);
+    });
+
+    // Minutes from the same agent (already consented) are saved, then the
+    // destination waiting for minutes is written.
+    click(cx, "tab-minutes");
+    click(cx, "make-minutes");
+    let dir = fixture.0.join("recordings").join("20261117100000");
+    assert_eq!(
+        kikimimic_core::minutes::load(&dir).unwrap().unwrap().items[0].text,
+        "定例を開始"
+    );
+    let note = fixture.0.join("notes").join("2026-11-17 20261117100000.md");
+    assert!(
+        std::fs::read_to_string(note)
+            .unwrap()
+            .contains("- 定例を開始")
+    );
+}

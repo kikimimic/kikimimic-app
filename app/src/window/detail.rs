@@ -19,6 +19,7 @@ pub(super) enum DetailTab {
     Subtitles,
     Export,
     Stats,
+    Ask,
 }
 
 /// What the minutes and export tabs show, read once per recording (and
@@ -223,6 +224,7 @@ impl MainWindow {
             DetailTab::Minutes => self.minutes_tab(session, cx),
             DetailTab::Export => self.export_tab(&dir, cx),
             DetailTab::Stats => stats_tab(ui, session),
+            DetailTab::Ask => self.ask_panel(&dir, cx),
         };
         div()
             .id("recording")
@@ -377,6 +379,7 @@ impl MainWindow {
             (DetailTab::Subtitles, "tab-subtitles", ui.tab_subtitles()),
             (DetailTab::Export, "tab-export", ui.step_export()),
             (DetailTab::Stats, "tab-stats", ui.tab_stats()),
+            (DetailTab::Ask, "tab-ask", ui.tab_ask()),
         ] {
             row = row.child(
                 button(id, label, self.detail_tab == tab)
@@ -412,13 +415,49 @@ impl MainWindow {
 
     fn minutes_tab(&self, session: &library::Session, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
+        let dir = PathBuf::from(&session.dir);
+        let making = self.ask.making_minutes.as_deref() == Some(dir.as_path());
+        let mut col = div().flex().flex_col().gap_3().child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().flex_1().text_color(theme::muted()).child(
+                    if self.detail.minutes.is_some() {
+                        ui.minutes_from_transcript()
+                    } else {
+                        ui.minutes_not_made()
+                    },
+                ))
+                .child(if making {
+                    div()
+                        .text_color(theme::muted())
+                        .child(ui.making_minutes())
+                        .into_any_element()
+                } else {
+                    let d = dir.clone();
+                    button(
+                        "make-minutes",
+                        if self.detail.minutes.is_some() {
+                            ui.remake_minutes()
+                        } else {
+                            ui.make_minutes()
+                        },
+                        self.detail.minutes.is_none(),
+                    )
+                    .debug_selector(|| "make-minutes".into())
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.request_minutes(d.clone(), cx)),
+                    )
+                    .into_any_element()
+                }),
+        );
+        if let Some(row) = self.consent_row_for_minutes(cx) {
+            col = col.child(row);
+        }
         let Some(minutes) = &self.detail.minutes else {
-            return div()
-                .text_color(theme::muted())
-                .child(ui.minutes_not_made())
-                .into_any_element();
+            return col.into_any_element();
         };
-        let mut col = div().flex().flex_col().gap_3();
         for (kind, heading) in [
             (Kind::Summary, ui.minutes_summary()),
             (Kind::Decision, ui.minutes_decisions()),

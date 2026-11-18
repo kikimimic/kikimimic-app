@@ -60,6 +60,21 @@ fn diarizer() -> Option<Box<dyn kikimimic_core::engine::Diarizer>> {
 }
 
 fn main() {
+    // `kikimimic mcp`: serve meetings to a coding agent over stdio, no window
+    // (the command Claude Code / Codex are told to run, see Settings).
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        let stdin = std::io::stdin();
+        if let Err(e) = kikimimic_core::mcp::serve(
+            &paths::recordings_dir(),
+            &[],
+            stdin.lock(),
+            std::io::stdout().lock(),
+        ) {
+            eprintln!("kikimimic mcp: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let (kkm, events) = Kikimimic::start(Config {
         data_dir: paths::data_dir(),
         extra_model_dirs: paths::extra_model_dirs(),

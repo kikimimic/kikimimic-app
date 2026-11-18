@@ -4,6 +4,7 @@
 //! nothing platform-specific so it stays testable headless (ADR-120001).
 
 pub mod advisor;
+pub mod agent;
 pub mod annotations;
 pub mod asr;
 pub mod capture;
@@ -20,6 +21,7 @@ pub mod imports;
 pub mod language;
 pub mod library;
 mod local_agreement;
+pub mod mcp;
 pub mod meeting;
 pub mod meeting_qa;
 pub mod metrics;

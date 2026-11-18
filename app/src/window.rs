@@ -1,6 +1,7 @@
 //! The main window: a status bar, the meeting timeline, one screen in a
 //! width-limited column, and a status line (the v4 layout).
 
+mod ask;
 mod detail;
 mod imports;
 mod live;
@@ -61,6 +62,9 @@ pub struct MainWindow {
     section: settings::Section,
     detail_tab: detail::DetailTab,
     detail: detail::DetailCache,
+    ask: ask::AskState,
+    /// How an agent is called; tests put a fake here.
+    run_agent: fn(kikimimic_core::agent::Agent, &str) -> anyhow::Result<String>,
     dest_selected: usize,
     dest_name: Entity<TextInput>,
     dest_folder: Entity<TextInput>,
@@ -259,6 +263,8 @@ impl MainWindow {
             section: settings::Section::General,
             detail_tab: detail::DetailTab::Text,
             detail: Default::default(),
+            ask: ask::AskState::new(ui, cx),
+            run_agent: kikimimic_core::agent::run,
             dest_selected: 0,
             dest_name: cx.new(|cx| TextInput::new("", cx)),
             dest_folder: cx.new(|cx| TextInput::new("", cx)),
