@@ -208,3 +208,60 @@ fn a_question_goes_to_the_agent_only_after_consent_and_comes_back_quoted(cx: &mu
             .contains("- 定例を開始")
     );
 }
+
+#[gpui::test]
+fn the_advisor_answers_only_when_asked_and_stays_quiet_once_dismissed_or_stopped(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let state = cx.new(|_| AppState::default());
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
+    });
+    let said = |id: u64, text: &str| crate::state::Line {
+        id: kikimimic_core::domain::UtteranceId(id),
+        lane: kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::Mic, 1),
+        committed: text.into(),
+        volatile: String::new(),
+        start: None,
+        lang: None,
+        translation: crate::state::Translation::None,
+    };
+    state.update(cx, |s, cx| {
+        s.phase = Phase::Listening;
+        s.lines = vec![
+            said(1, "では始めます。"),
+            said(2, "未決の論点：取り込み機能の担当"),
+        ];
+        cx.notify();
+    });
+    window.update(cx, |w, cx| w.show(View::Live, cx));
+    cx.run_until_parked();
+
+    click(cx, "advise");
+    window.read_with(cx, |w, _| {
+        assert_eq!(w.advice.cards.len(), 1);
+        assert_eq!(w.advice.cards[0].evidence, "未決の論点：取り込み機能の担当");
+    });
+    click(cx, "advice-dismiss-0");
+    click(cx, "advise");
+    window.read_with(cx, |w, _| {
+        assert!(
+            w.advice.cards.is_empty(),
+            "a dismissed card does not return"
+        )
+    });
+
+    state.update(cx, |s, cx| {
+        s.lines.push(said(3, "未回答の質問：リリース日は？"));
+        cx.notify();
+    });
+    click(cx, "advice-stop");
+    window.read_with(cx, |w, _| assert!(w.advice.stopped));
+    assert!(
+        cx.debug_bounds("advise").is_none(),
+        "a stopped advisor offers no button"
+    );
+}

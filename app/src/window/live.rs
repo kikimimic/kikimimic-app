@@ -1,11 +1,89 @@
 //! The live session as one stream: notices, then what is being said,
 //! each line marked by who said it.
 
+use kikimimic_core::advisor::{Advisor, Candidate, Kind};
+
 use super::*;
+
+/// The manual advisor for the meeting in progress (#40): cards only when
+/// asked, never the same evidence twice, and a stop that holds.
+#[derive(Default)]
+pub(super) struct Advice {
+    advisor: Advisor,
+    pub cards: Vec<Candidate>,
+    pub stopped: bool,
+    /// Whether the user has asked at least once (to say "nothing now").
+    asked: bool,
+}
+
+impl MainWindow {
+    fn advise(&mut self, cx: &mut Context<Self>) {
+        let said: Vec<String> = self
+            .state
+            .read(cx)
+            .lines
+            .iter()
+            .filter(|l| l.volatile.is_empty() && !l.committed.trim().is_empty())
+            .map(|l| l.committed.clone())
+            .collect();
+        let refs: Vec<&str> = said.iter().map(String::as_str).collect();
+        self.advice.cards = self.advice.advisor.request(&refs);
+        self.advice.asked = true;
+        cx.notify();
+    }
+
+    fn advice_cards(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let ui = self.ui;
+        if !self.advice.asked || self.advice.stopped {
+            return None;
+        }
+        let mut col = div().flex().flex_col().gap_1();
+        if self.advice.cards.is_empty() {
+            col = col.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(ui.no_advice()),
+            );
+        }
+        for (i, card) in self.advice.cards.iter().enumerate() {
+            let evidence = card.evidence.clone();
+            col = col.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pl_3()
+                    .py_1()
+                    .border_l_2()
+                    .border_color(rgb(0x9a6700))
+                    .text_size(px(12.5))
+                    .child(div().text_color(rgb(0x9a6700)).child(match card.kind {
+                        Kind::FollowUp => ui.advice_follow_up(),
+                        Kind::OpenQuestion => ui.advice_open_question(),
+                        Kind::Undecided => ui.advice_undecided(),
+                    }))
+                    .child(div().flex_1().child(card.evidence.clone()))
+                    .child(
+                        button(("advice-dismiss", i), ui.dismiss(), false)
+                            .debug_selector(move || format!("advice-dismiss-{i}"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.advice.advisor.dismiss(&evidence);
+                                this.advice.cards.retain(|c| c.evidence != evidence);
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+        Some(col.into_any_element())
+    }
+}
 
 impl MainWindow {
     pub(super) fn session(&self, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
+        // Built before the state is borrowed for the rest of the screen.
+        let advice = self.advice_cards(cx);
         let state = self.state.read(cx);
         let mut col = super::shell::column().size_full().on_mouse_down(
             MouseButton::Right,
@@ -54,10 +132,30 @@ impl MainWindow {
                     Phase::Stopping => ui.finishing().to_string(),
                     Phase::Error { message } => ui.error(message),
                 }))
+                .when(!self.advice.stopped, |row| {
+                    row.child(
+                        button("advise", ui.advisor(), false)
+                            .debug_selector(|| "advise".into())
+                            .on_click(cx.listener(|this, _, _, cx| this.advise(cx))),
+                    )
+                    .child(
+                        button("advice-stop", ui.stop_advisor(), false)
+                            .debug_selector(|| "advice-stop".into())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.advice.advisor.stop();
+                                this.advice.stopped = true;
+                                this.advice.cards.clear();
+                                cx.notify();
+                            })),
+                    )
+                })
                 .child(button("clear-live", ui.clear_transcript(), false).on_click(
                     cx.listener(|this, _, _, cx| this.state.update(cx, |s, _| s.lines.clear())),
                 )),
         );
+        if let Some(cards) = advice {
+            col = col.child(cards);
+        }
         if let Some(q) = &state.question {
             let uid = q.uid.clone();
             let uid2 = q.uid.clone();

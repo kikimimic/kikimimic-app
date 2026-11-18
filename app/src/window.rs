@@ -63,6 +63,7 @@ pub struct MainWindow {
     detail_tab: detail::DetailTab,
     detail: detail::DetailCache,
     ask: ask::AskState,
+    advice: live::Advice,
     /// How an agent is called; tests put a fake here.
     run_agent: fn(kikimimic_core::agent::Agent, &str) -> anyhow::Result<String>,
     dest_selected: usize,
@@ -264,6 +265,7 @@ impl MainWindow {
             detail_tab: detail::DetailTab::Text,
             detail: Default::default(),
             ask: ask::AskState::new(ui, cx),
+            advice: Default::default(),
             run_agent: kikimimic_core::agent::run,
             dest_selected: 0,
             dest_name: cx.new(|cx| TextInput::new("", cx)),
@@ -368,6 +370,8 @@ impl MainWindow {
             self.state.update(cx, |s, _| s.lines.clear());
         }
         self.live_mode = Some(mode);
+        // One advisor per meeting: dismissals and a stop do not carry over.
+        self.advice = Default::default();
         self.view = View::Live;
         self.kkm.start_session(mode);
         cx.notify();
