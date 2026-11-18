@@ -237,6 +237,7 @@ mod tests {
             when: When::AfterMinutes,
             enabled: true,
             template: "{{transcript}}".into(),
+            template_file: None,
         }
     }
 

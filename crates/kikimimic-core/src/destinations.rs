@@ -48,6 +48,10 @@ pub struct Destination {
     pub enabled: bool,
     #[serde(default)]
     pub template: String,
+    /// A template kept as a file (a note in the user's vault, say), used
+    /// instead of `template` so it can be edited in any editor.
+    #[serde(default)]
+    pub template_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +90,7 @@ pub fn defaults() -> Vec<Destination> {
         when: When::Manual,
         enabled: true,
         template: DEFAULT_TEMPLATE.into(),
+        template_file: None,
     }]
 }
 
@@ -231,9 +236,24 @@ pub fn variables(session: &Session, minutes: Option<&Minutes>) -> BTreeMap<&'sta
     ])
 }
 
+/// The template text: the file's when one is set, otherwise the inline one.
+pub fn template(dest: &Destination) -> anyhow::Result<String> {
+    match &dest.template_file {
+        Some(file) => {
+            std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))
+        }
+        None => Ok(dest.template.clone()),
+    }
+}
+
+/// The text a destination would receive. An unreadable template file is
+/// shown as such rather than silently replaced by the inline template.
 pub fn render(dest: &Destination, session: &Session, minutes: Option<&Minutes>) -> String {
     match dest.format {
-        Format::Template => fill(&dest.template, &variables(session, minutes)),
+        Format::Template => match template(dest) {
+            Ok(t) => fill(&t, &variables(session, minutes)),
+            Err(e) => format!("テンプレートを読めません: {e:#}"),
+        },
         Format::Srt => crate::export::srt(session),
         Format::Json => serde_json::to_string_pretty(session).unwrap_or_default(),
     }
@@ -295,6 +315,9 @@ pub fn write(
     recording_dir: &Path,
     home: &Path,
 ) -> anyhow::Result<PathBuf> {
+    if dest.format == Format::Template {
+        template(dest)?;
+    }
     let text = render(dest, session, minutes);
     let target = path(dest, session, home);
     if let Some(parent) = target.parent() {
@@ -388,6 +411,7 @@ mod tests {
             when: When::Manual,
             enabled: true,
             template: template.into(),
+            template_file: None,
         }
     }
 
@@ -496,6 +520,23 @@ mod tests {
         assert_eq!(state(&d, &s, None, &rec), ExportState::Fresh);
         s.lines[0].text = "始めましょう。".into();
         assert_eq!(state(&d, &s, None, &rec), ExportState::Stale);
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn a_template_file_is_used_and_a_missing_one_refuses_to_write() {
+        let tmp = std::env::temp_dir().join(format!("kkm-dest-tpl-{}", std::process::id()));
+        let (rec, home) = (tmp.join("rec"), tmp.join("home"));
+        std::fs::create_dir_all(&rec).unwrap();
+        let file = tmp.join("meeting-template.md");
+        std::fs::write(&file, "## {{title}}").unwrap();
+        let mut d = dest(Format::Template, "inline {{title}}");
+        d.template_file = Some(file.clone());
+        assert_eq!(render(&d, &session(), None), "## 週次定例");
+        std::fs::remove_file(&file).unwrap();
+        assert!(render(&d, &session(), None).contains("meeting-template.md"));
+        assert!(write(&d, &session(), None, &rec, &home).is_err());
+        assert_eq!(state(&d, &session(), None, &rec), ExportState::NotWritten);
         std::fs::remove_dir_all(tmp).unwrap();
     }
 
