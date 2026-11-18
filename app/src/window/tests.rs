@@ -306,3 +306,64 @@ fn a_meeting_with_word_timing_shows_its_subtitle_timeline(cx: &mut TestAppContex
     click(cx, "tab-subtitles");
     assert!(cx.debug_bounds("subtitle-timeline").is_some());
 }
+
+#[gpui::test]
+fn calendar_meetings_start_and_stop_automatic_recording(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let mut settings = kkm.settings();
+    settings.auto_record = true;
+    kkm.update_settings(settings).unwrap();
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state, calendar, cx)
+    });
+    let tick = |cx: &mut gpui::VisualTestContext, present: bool, at: u64| {
+        window.update(cx, |w, cx| w.auto_record_tick(present, at, cx));
+    };
+    tick(cx, true, 0);
+    window.read_with(cx, |w, _| {
+        assert!(w.auto_session, "a meeting in progress starts a recording")
+    });
+    tick(cx, false, 10);
+    window.read_with(cx, |w, _| {
+        assert!(w.auto_session, "a short gap does not end it")
+    });
+    tick(cx, false, 70);
+    window.read_with(cx, |w, _| {
+        assert!(!w.auto_session, "60 s without a meeting stops it")
+    });
+
+    // Stopping by hand holds until the meeting is over.
+    tick(cx, true, 100);
+    window.update(cx, |w, cx| w.stop_by_user(cx));
+    tick(cx, true, 110);
+    window.read_with(cx, |w, _| {
+        assert!(
+            !w.auto_session,
+            "a meeting stopped by hand is not restarted"
+        )
+    });
+}
+
+#[gpui::test]
+fn a_recording_started_from_the_calendar_card_is_not_doubled(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let mut settings = kkm.settings();
+    settings.auto_record = true;
+    kkm.update_settings(settings).unwrap();
+    let state = cx.new(|_| AppState::default());
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
+    });
+    // The cut-in card starts sessions directly in the core.
+    state.update(cx, |s, cx| {
+        s.phase = Phase::Listening;
+        cx.notify();
+    });
+    window.update(cx, |w, cx| w.auto_record_tick(true, 0, cx));
+    window.read_with(cx, |w, _| assert!(!w.auto_session));
+}

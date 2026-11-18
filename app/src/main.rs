@@ -9,6 +9,7 @@ mod evaluation;
 mod evaluation_io;
 mod google;
 mod i18n;
+mod menus;
 mod paths;
 mod speakers;
 mod state;
@@ -104,6 +105,7 @@ fn main() {
             )
             .expect("open the main window");
         calendar.update(cx, |c, _| c.main_window = Some(main.into()));
+        menus::install(i18n::Ui::detect(), main, cx);
         cx.activate(true);
     });
 }

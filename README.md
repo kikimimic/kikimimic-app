@@ -24,6 +24,8 @@ The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the sha
 - Optional recording word timing, click-to-play review and separate subtitle boundaries ([guide](docs/word-timing.md))
 - One window built around a day of meetings: the next calendar meeting and what is still unprocessed on top, every meeting grouped by day on the left (search reaches what was said), audio dropped on the sidebar is imported
 - Export destinations: write each meeting to a folder you choose, under a file-name template and in a format you choose (a Markdown template, SRT or JSON), by hand or when a recording or its minutes are ready. A note vault such as Obsidian is just a folder; a note edited after export is never overwritten
+- Ask Claude Code or Codex about a meeting, live or afterwards, and have them draft minutes. Answers must quote the transcript (unbacked ones are not shown); nothing is sent before you confirm what goes where. `kikimimic mcp` also lets an agent in your terminal read meetings over MCP
+- A manual advisor on the live screen, a subtitle timeline, and opt-in automatic recording of calendar meetings (starts when one begins, stops a minute after it ends); the menu bar and the Dock menu reach recording without the window
 
 ## Models
 
