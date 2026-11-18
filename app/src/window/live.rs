@@ -1,4 +1,5 @@
-//! The live session: controls, notices and the growing transcript.
+//! The live session as one stream: notices, then what is being said,
+//! each line marked by who said it.
 
 use super::*;
 
@@ -6,21 +7,13 @@ impl MainWindow {
     pub(super) fn session(&self, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
         let state = self.state.read(cx);
-        let listening = state.is_listening();
-        let busy = matches!(state.phase, Phase::Stopping);
-        let mut col = div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .gap_2()
-            .p_4()
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                    this.menu = Some(e.position);
-                    cx.notify();
-                }),
-            );
+        let mut col = super::shell::column().size_full().on_mouse_down(
+            MouseButton::Right,
+            cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                this.menu = Some(e.position);
+                cx.notify();
+            }),
+        );
         if let Some(at) = self.menu {
             col = col.child(deferred(
                 anchored().position(at).child(
@@ -41,57 +34,29 @@ impl MainWindow {
                 ),
             ));
         }
-        let mut controls = div().flex().gap_2().items_center();
-        if listening {
-            controls = controls.child(
-                button("stop", ui.stop(), true)
-                    .on_click(cx.listener(|this, _, _, _| this.kkm.stop_session())),
-            );
-        } else if !busy {
-            controls =
-                controls
-                    .child(button("meeting", ui.record_meeting(), false).on_click(
-                        cx.listener(|this, _, _, cx| this.start(SessionMode::Meeting, cx)),
-                    ))
-                    .child(button("face", ui.face_to_face(), false).on_click(
-                        cx.listener(|this, _, _, cx| this.start(SessionMode::FaceToFace, cx)),
-                    ));
-        }
-        let phase = match &state.phase {
-            Phase::Idle => ui.idle().to_string(),
-            Phase::Listening => ui.listening().to_string(),
-            Phase::Stopping => ui.finishing().to_string(),
-            Phase::Error { message } => ui.error(message),
-        };
-        controls = controls.child(div().text_color(gray()).child(phase));
-        let captions_open = crate::captions::is_open(cx);
-        controls = controls.child(div().flex_1()).child(
-            button(
-                "captions-switch",
-                if captions_open {
-                    "字幕  ● オン"
-                } else {
-                    "字幕  ○ オフ"
-                },
-                captions_open,
-            )
-            .opacity(if listening { 1. } else { 0.45 })
-            .on_click(cx.listener(|this, _, _, cx| {
-                if this.state.read(cx).is_listening() {
-                    if let Err(error) = crate::captions::toggle(this.state.clone(), cx) {
-                        this.error = Some(error.to_string());
-                    }
-                    cx.notify();
-                }
-            })),
-        );
+        // Start/stop live in the timeline and captions in the status line;
+        // here only the title row and Clear, which belongs to this screen.
         col = col.child(
             div()
-                .p_3()
-                .rounded_lg()
-                .border_1()
-                .border_color(rgb(0xd0d7de))
-                .child(controls),
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(18.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(ui.live_title()),
+                )
+                .child(div().text_color(gray()).child(match &state.phase {
+                    Phase::Idle => ui.idle().to_string(),
+                    Phase::Listening => ui.listening().to_string(),
+                    Phase::Stopping => ui.finishing().to_string(),
+                    Phase::Error { message } => ui.error(message),
+                }))
+                .child(button("clear-live", ui.clear_transcript(), false).on_click(
+                    cx.listener(|this, _, _, cx| this.state.update(cx, |s, _| s.lines.clear())),
+                )),
         );
         if let Some(q) = &state.question {
             let uid = q.uid.clone();
@@ -129,7 +94,15 @@ impl MainWindow {
             col = col.child(div().text_color(gray()).child(text));
         }
         let lines = state.lines.iter().map(|l| {
-            let mut row = div().flex().flex_col().gap_1().py_1();
+            let mine = l.lane.as_str() == "mic";
+            let mut row = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .py_1()
+                .pl_3()
+                .border_l_2()
+                .border_color(if mine { rgb(0x0969da) } else { rgb(0x8250df) });
             let time = l
                 .start
                 .map(|t| mm_ss(t.0))
@@ -141,7 +114,7 @@ impl MainWindow {
                     .text_size(px(12.))
                     .text_color(gray())
                     .child(time)
-                    .child(l.lane.as_str().to_string()),
+                    .child(if mine { ui.lane_me() } else { ui.lane_them() }),
             );
             row = row.child(transcript_line::render(&l.committed, &l.volatile, gray()));
             let translation = match &l.translation {

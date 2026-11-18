@@ -24,10 +24,18 @@ impl CaptureBackend for NoCapture {
 }
 
 /// A data dir with one finished recording, and a home for destinations.
-struct Fixture(std::path::PathBuf);
+/// The window finds recordings through a process-wide environment variable,
+/// so window tests hold a lock while they run.
+struct Fixture(
+    std::path::PathBuf,
+    #[allow(dead_code)] std::sync::MutexGuard<'static, ()>,
+);
+
+static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 impl Fixture {
     fn new() -> Self {
+        let guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         static N: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "kkm-window-{}-{}",
@@ -45,7 +53,7 @@ impl Fixture {
             ),
         )
         .unwrap();
-        Self(root)
+        Self(root, guard)
     }
 
     fn start(&self) -> Kikimimic {
@@ -133,5 +141,9 @@ fn a_finished_recording_is_written_to_destinations_waiting_for_it(cx: &mut TestA
         });
         cx.run_until_parked();
     }
-    assert!(std::fs::read_to_string(&note).unwrap().contains("定例を始めます"));
+    assert!(
+        std::fs::read_to_string(&note)
+            .unwrap()
+            .contains("定例を始めます")
+    );
 }

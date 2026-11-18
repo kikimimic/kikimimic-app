@@ -168,6 +168,7 @@ texts! {
     rewrite: "Write again", "書き出し直す";
     lane_me: "Me", "自分";
     lane_them: "Them", "相手";
+    live_title: "Live", "ライブ";
 }
 
 impl Ui {
