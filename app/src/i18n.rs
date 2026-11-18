@@ -106,16 +106,17 @@ texts! {
     record: "Record", "録音を開始";
     dismiss: "Dismiss", "閉じる";
     no_title: "(No title)", "（タイトルなし）";
+    untitled_recording: "Recording", "会議の録音";
     search_meetings: "Search meetings and what was said", "会議と発言を検索";
     filter_all: "All", "すべて";
     filter_unfinished: "Unfinished", "未完了";
     today: "Today", "今日";
     yesterday: "Yesterday", "昨日";
     undated: "Undated", "日付なし";
-    stage_transcribe: "Not transcribed", "未文字起こし";
-    stage_speakers: "No speakers", "話者未判別";
-    stage_minutes: "No minutes", "議事録なし";
-    stage_export: "Export pending", "書き出し待ち";
+    progress_none: "Not processed", "未処理";
+    progress_transcribed: "Transcribed", "文字起こし済み";
+    progress_speakers: "Speakers done", "話者済み";
+    progress_minutes: "Minutes done", "議事録済み";
     drop_audio: "Drop audio here to import", "音声をドロップして取り込む";
     drop_audio_formats: "WAV / M4A / MP3 · several at once", "WAV / M4A / MP3 · 複数可";
     import_details: "Details", "詳細";
@@ -185,10 +186,27 @@ texts! {
     lane_me: "Me", "自分";
     lane_them: "Them", "相手";
     live_title: "Live", "ライブ";
-    tab_ask: "Ask", "質問";
     advisor: "Advisor", "アドバイザー";
     quit: "Quit Kikimimic", "Kikimimic を終了";
     recording_menu: "Recording", "録音";
+    view_menu: "View", "表示";
+    ask_button: "Ask", "質問";
+    commands_button: "Commands", "コマンド";
+    palette_placeholder: "Find an action (↑↓ then Enter)", "操作を探す（↑↓ で選んで Enter）";
+    palette_hint: "Everything here is also a button on screen.", "ここにある操作は、すべて画面上のボタンからも行えます。";
+    palette_nothing: "No matching action.", "一致する操作がありません。";
+    cmd_search: "Search meetings", "会議を検索";
+    cmd_import: "Import audio…", "音声を取り込む…";
+    cmd_write_pending: "Write this meeting to its destinations", "この会議を書き出し先へ書き出す";
+    cmd_make_minutes: "Make minutes for this meeting", "この会議の議事録を作る";
+    cmd_export_settings: "Export destinations", "書き出し先の設定";
+    ask_title: "Ask", "質問";
+    not_chosen: "not chosen", "未設定";
+    live_stopped: "Live (stopped)", "ライブ（停止中）";
+    live_empty: "Listening… what is said appears here as one stream. Captions show over the meeting app.", "聞き取っています… 話し始めると、ここに 1 本の流れで出ます。会議アプリの上には字幕が出ます。";
+    close: "Close", "閉じる";
+    ask_this_meeting: "Ask about this meeting", "この会議に質問";
+    ask_needs_meeting: "Open a meeting or start recording to ask about it.", "会議を開くか録音を始めると、その会議について質問できます。";
     toggle_auto_record: "Toggle auto-record", "自動録音を切り替える";
     toggle_captions: "Toggle captions", "字幕を切り替える";
     started_automatically: "Started automatically", "自動で開始";
@@ -343,6 +361,13 @@ impl Ui {
         match self {
             Self::En => format!("Send to {agent} ({company})?"),
             Self::Ja => format!("{agent}（{company}）に送ります。"),
+        }
+    }
+
+    pub fn asks_go_to(self, agent: &str) -> String {
+        match self {
+            Self::En => format!("Questions: {agent}"),
+            Self::Ja => format!("質問: {agent}"),
         }
     }
 

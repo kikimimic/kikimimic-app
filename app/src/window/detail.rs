@@ -19,7 +19,6 @@ pub(super) enum DetailTab {
     Subtitles,
     Export,
     Stats,
-    Ask,
 }
 
 /// What the minutes and export tabs show, read once per recording (and
@@ -168,7 +167,7 @@ impl MainWindow {
         .detach();
     }
 
-    fn write_destinations(
+    pub(super) fn write_destinations(
         &mut self,
         dir: PathBuf,
         dests: Vec<destinations::Destination>,
@@ -201,19 +200,58 @@ impl MainWindow {
                 .into_any_element();
         };
         let dir = dir.clone();
-        let title = session
-            .title
-            .clone()
+        // Called the same as in the timeline, so the two read as one thing.
+        let title = self
+            .recordings
+            .iter()
+            .find(|r| Path::new(&r.dir) == dir)
+            .map(|r| super::shell::row_title(ui, r))
             .unwrap_or_else(|| session.name.clone());
+        let when = session
+            .started
+            .as_deref()
+            .filter(|s| s.len() >= 12)
+            .map(|s| {
+                format!(
+                    "{}-{}-{} {}:{}",
+                    &s[..4],
+                    &s[4..6],
+                    &s[6..8],
+                    &s[8..10],
+                    &s[10..12]
+                )
+            })
+            .unwrap_or_default();
         let header = div()
             .flex()
             .flex_col()
             .gap_2()
             .child(
                 div()
-                    .text_size(px(20.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title),
+                    )
+                    .child(
+                        button("ask-this", ui.ask_this_meeting(), self.ask_open)
+                            .flex_none()
+                            .debug_selector(|| "ask-this".into())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_ask(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(theme::muted())
+                    .child(format!("{when} · {}", mm_ss(session.duration_ms))),
             )
             .child(self.pipeline(&dir, session.duration_ms, cx))
             .child(self.player(session.duration_ms, cx))
@@ -224,7 +262,6 @@ impl MainWindow {
             DetailTab::Minutes => self.minutes_tab(session, cx),
             DetailTab::Export => self.export_tab(&dir, cx),
             DetailTab::Stats => stats_tab(ui, session),
-            DetailTab::Ask => self.ask_panel(&dir, cx),
         };
         div()
             .id("recording")
@@ -372,22 +409,21 @@ impl MainWindow {
 
     fn detail_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
-        let mut row = div().flex().gap_1();
+        let mut tabs = Vec::new();
         for (tab, id, label) in [
             (DetailTab::Text, "tab-text", ui.tab_text()),
             (DetailTab::Minutes, "tab-minutes", ui.step_minutes()),
             (DetailTab::Subtitles, "tab-subtitles", ui.tab_subtitles()),
             (DetailTab::Export, "tab-export", ui.step_export()),
             (DetailTab::Stats, "tab-stats", ui.tab_stats()),
-            (DetailTab::Ask, "tab-ask", ui.tab_ask()),
         ] {
-            row = row.child(
+            tabs.push(
                 button(id, label, self.detail_tab == tab)
                     .debug_selector(move || id.into())
                     .on_click(cx.listener(move |this, _, _, cx| this.set_detail_tab(tab, cx))),
             );
         }
-        row
+        div().flex().child(segmented(tabs))
     }
 
     fn text_tab(&self, dir: &Path, cx: &mut Context<Self>) -> AnyElement {

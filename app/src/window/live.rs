@@ -37,7 +37,18 @@ impl MainWindow {
         if !self.advice.asked || self.advice.stopped {
             return None;
         }
-        let mut col = div().flex().flex_col().gap_1();
+        let mut col = div().flex().flex_col().gap_1().child(
+            div().flex().justify_end().child(
+                button("advice-stop", ui.stop_advisor(), false)
+                    .debug_selector(|| "advice-stop".into())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.advice.advisor.stop();
+                        this.advice.stopped = true;
+                        this.advice.cards.clear();
+                        cx.notify();
+                    })),
+            ),
+        );
         if self.advice.cards.is_empty() {
             col = col.child(
                 div()
@@ -85,6 +96,7 @@ impl MainWindow {
         // Built before the state is borrowed for the rest of the screen.
         let advice = self.advice_cards(cx);
         let state = self.state.read(cx);
+        let listening = state.is_listening();
         let mut col = super::shell::column().size_full().on_mouse_down(
             MouseButton::Right,
             cx.listener(|this, e: &MouseDownEvent, _, cx| {
@@ -124,34 +136,28 @@ impl MainWindow {
                         .flex_1()
                         .text_size(px(18.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(ui.live_title()),
+                        .child(if listening {
+                            ui.live_title()
+                        } else {
+                            ui.live_stopped()
+                        }),
                 )
-                .child(div().text_color(gray()).child(match &state.phase {
-                    Phase::Idle => ui.idle().to_string(),
-                    Phase::Listening => ui.listening().to_string(),
-                    Phase::Stopping => ui.finishing().to_string(),
-                    Phase::Error { message } => ui.error(message),
-                }))
-                .when(!self.advice.stopped, |row| {
+                .when(listening && !self.advice.stopped, |row| {
                     row.child(
                         button("advise", ui.advisor(), false)
                             .debug_selector(|| "advise".into())
                             .on_click(cx.listener(|this, _, _, cx| this.advise(cx))),
                     )
-                    .child(
-                        button("advice-stop", ui.stop_advisor(), false)
-                            .debug_selector(|| "advice-stop".into())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.advice.advisor.stop();
-                                this.advice.stopped = true;
-                                this.advice.cards.clear();
-                                cx.notify();
-                            })),
-                    )
                 })
                 .child(button("clear-live", ui.clear_transcript(), false).on_click(
                     cx.listener(|this, _, _, cx| this.state.update(cx, |s, _| s.lines.clear())),
-                )),
+                ))
+                .when(listening, |row| {
+                    row.child(
+                        stop_button("stop-live", ui.stop().to_string())
+                            .on_click(cx.listener(|this, _, _, cx| this.stop_by_user(cx))),
+                    )
+                }),
         );
         if let Some(cards) = advice {
             col = col.child(cards);
@@ -229,8 +235,7 @@ impl MainWindow {
             }
             row
         });
-        let ask = state.recording_dir.clone().filter(|_| state.is_listening());
-        let col = col.child(
+        col.child(
             div()
                 .id("transcript")
                 .flex()
@@ -238,19 +243,11 @@ impl MainWindow {
                 .flex_1()
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll)
+                .when(state.lines.is_empty() && state.is_listening(), |d| {
+                    d.child(div().py_6().text_color(gray()).child(ui.live_empty()))
+                })
                 .children(lines),
-        );
-        match ask {
-            Some(dir) => col
-                .child(
-                    div()
-                        .pt_2()
-                        .border_t_1()
-                        .border_color(rgb(0xd0d7de))
-                        .child(self.ask_panel(&dir, cx)),
-                )
-                .into_any_element(),
-            None => col.into_any_element(),
-        }
+        )
+        .into_any_element()
     }
 }

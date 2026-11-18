@@ -32,12 +32,15 @@ pub(super) fn stage_of(dir: &Path, destinations: &[Destination]) -> Option<Stage
     timeline::next_stage(&session, dir, minutes.as_ref(), destinations)
 }
 
-fn stage_label(ui: Ui, stage: Stage) -> &'static str {
-    match stage {
-        Stage::Transcribe => ui.stage_transcribe(),
-        Stage::Speakers => ui.stage_speakers(),
-        Stage::Minutes => ui.stage_minutes(),
-        Stage::Export => ui.stage_export(),
+/// How far an unfinished recording got, named by the step it has done
+/// rather than the one it lacks: a list of "no this, no that" reads as a
+/// wall of problems, while "transcribed" reads as progress.
+fn stage_label(ui: Ui, next: Stage) -> &'static str {
+    match next {
+        Stage::Transcribe => ui.progress_none(),
+        Stage::Speakers => ui.progress_transcribed(),
+        Stage::Minutes => ui.progress_speakers(),
+        Stage::Export => ui.progress_minutes(),
     }
 }
 
@@ -60,6 +63,21 @@ fn clock_of(started: Option<&str>) -> String {
         .and_then(|s| s.get(8..12))
         .map(|hm| format!("{}:{}", &hm[..2], &hm[2..]))
         .unwrap_or_default()
+}
+
+/// What a recording is called in the timeline: its title, else the start of
+/// what was said (the time is already beside it, so the folder's timestamp
+/// would only repeat it).
+pub(super) fn row_title(ui: Ui, r: &Recording) -> String {
+    if let Some(t) = &r.title {
+        return t.clone();
+    }
+    let said: String = r.snippet.trim().chars().take(40).collect();
+    if said.is_empty() {
+        ui.untitled_recording().into()
+    } else {
+        said
+    }
 }
 
 /// The centred, width-limited column every screen's content sits in.
@@ -121,7 +139,8 @@ impl MainWindow {
                     ui.recording_face()
                 } else {
                     ui.recording_meeting()
-                }));
+                }))
+                .child(div().child(self.elapsed()));
             if face {
                 let saved = self.kkm.settings().save_face_to_face;
                 left = left.child(
@@ -190,6 +209,33 @@ impl MainWindow {
                     })),
             );
         }
+        let keyed = |id: &'static str, label: &'static str, keys: &'static str, on: bool| {
+            button(id, "", on)
+                .flex()
+                .items_center()
+                .gap_2()
+                .debug_selector(move || id.into())
+                .child(label)
+                .child(
+                    div()
+                        .px_1()
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(theme::border())
+                        .text_size(px(11.))
+                        .text_color(theme::muted())
+                        .child(keys),
+                )
+        };
+        right = right
+            .child(
+                keyed("ask-toggle", ui.ask_button(), "⌘J", self.ask_open)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_ask(cx))),
+            )
+            .child(
+                keyed("palette-open", ui.commands_button(), "⌘K", false)
+                    .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
+            );
         right = right.child(
             button(
                 "settings",
@@ -228,8 +274,10 @@ impl MainWindow {
         let mut record = div().flex().gap_2();
         if listening {
             record = record.child(
-                button("stop", ui.stop(), true)
+                stop_button("stop", format!("{}  {}", ui.stop(), self.elapsed()))
                     .flex_1()
+                    .flex()
+                    .justify_center()
                     .on_click(cx.listener(|this, _, _, cx| this.stop_by_user(cx))),
             );
         } else if !busy {
@@ -249,11 +297,13 @@ impl MainWindow {
                     cx.listener(|this, _, _, cx| this.start(SessionMode::FaceToFace, cx)),
                 ));
         }
-        let filter = |id: &'static str, label: &'static str, f: ListFilter| {
-            button(id, label, self.list_filter == f).on_click(cx.listener(move |this, _, _, cx| {
-                this.list_filter = f;
-                cx.notify();
-            }))
+        let filter = |id: &'static str, label: String, f: ListFilter| {
+            button(id, label, self.list_filter == f)
+                .debug_selector(move || id.into())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.list_filter = f;
+                    cx.notify();
+                }))
         };
         let head = div()
             .flex()
@@ -264,17 +314,18 @@ impl MainWindow {
             .border_color(theme::border())
             .child(record)
             .child(self.search.clone())
-            .child(
-                div()
-                    .flex()
-                    .gap_1()
-                    .child(filter("filter-all", ui.filter_all(), ListFilter::All))
-                    .child(filter(
-                        "filter-unfinished",
-                        ui.filter_unfinished(),
-                        ListFilter::Unfinished,
-                    )),
-            );
+            .child(div().flex().child(segmented(vec![
+                filter(
+                    "filter-all",
+                    format!("{} {}", ui.filter_all(), self.recordings.len()),
+                    ListFilter::All,
+                ),
+                filter(
+                    "filter-unfinished",
+                    format!("{} {}", ui.filter_unfinished(), self.unfinished()),
+                    ListFilter::Unfinished,
+                ),
+            ])));
 
         div()
             .w(px(SIDEBAR))
@@ -373,7 +424,7 @@ impl MainWindow {
                             .min_w_0()
                             .truncate()
                             .text_size(px(13.))
-                            .child(r.title.clone().unwrap_or_else(|| r.name.clone())),
+                            .child(row_title(ui, r)),
                     );
                 if let Some(stage) = stage {
                     row = row.child(
@@ -613,6 +664,46 @@ impl MainWindow {
             Phase::Stopping => ui.finishing().to_string(),
             Phase::Error { message } => ui.error(message),
         };
+        // One meter per lane the session records; the other side's carries
+        // the device it captures, which is what changes under you.
+        let face = self.live_mode == Some(SessionMode::FaceToFace);
+        let device = match &state.source_message {
+            Some(SourceMessage::Switched(name)) => Some(name.clone()),
+            _ => None,
+        };
+        let meters: Vec<_> = [
+            ("mic", ui.lane_me(), None),
+            ("speaker", ui.lane_them(), device),
+        ]
+        .into_iter()
+        .filter(|(lane, _, _)| listening && !(face && *lane == "speaker"))
+        .map(|(lane, name, device)| {
+            // Square root: speech peaks around 0.1–0.5 and should
+            // fill most of the bar.
+            let level = state.level(lane).unwrap_or(0.).sqrt();
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(name)
+                .child(
+                    div()
+                        .w(px(36.))
+                        .h(px(4.))
+                        .rounded(px(2.))
+                        .bg(theme::border())
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .debug_selector(move || format!("meter-{lane}"))
+                                .h_full()
+                                .w(px(36. * level))
+                                .bg(theme::ok()),
+                        ),
+                )
+                .children(device)
+        })
+        .collect();
         let item = |id: &'static str, text: String| {
             div()
                 .id(id)
@@ -639,8 +730,13 @@ impl MainWindow {
                     } else {
                         rgb(0x656d76)
                     })
-                    .child(phase),
+                    .child(if listening {
+                        format!("● {phase} {}", self.elapsed())
+                    } else {
+                        phase
+                    }),
             )
+            .children(meters)
             .child(
                 item(
                     "footer-face",
@@ -683,6 +779,19 @@ impl MainWindow {
                 })),
             )
             .child(div().flex_1())
+            .child(
+                item(
+                    "footer-agent",
+                    match settings.agent {
+                        Some(a) => ui.asks_go_to(a.name()),
+                        None => ui.asks_go_to(ui.not_chosen()),
+                    },
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.section = super::settings::Section::Link;
+                    this.show(View::Settings, cx);
+                })),
+            )
             .child(ui.processed_locally())
     }
 }

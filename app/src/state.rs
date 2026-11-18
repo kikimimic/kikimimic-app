@@ -60,6 +60,8 @@ pub struct AppState {
     pub word_timing: Option<(PathBuf, PostProcessState)>,
     pub word_revision: u64,
     pub imports: kikimimic_core::imports::ImportQueue,
+    /// Each lane's latest level while listening.
+    pub levels: Vec<(LaneLabel, f32)>,
 }
 
 impl Default for AppState {
@@ -76,6 +78,7 @@ impl Default for AppState {
             word_timing: None,
             word_revision: 0,
             imports: Default::default(),
+            levels: Vec::new(),
         }
     }
 }
@@ -120,7 +123,11 @@ impl AppState {
                     };
                 }
             }
+            Event::Levels(levels) => self.levels = levels,
             Event::Status(status) => {
+                if !matches!(status.phase, Phase::Listening) {
+                    self.levels.clear();
+                }
                 self.phase = status.phase;
                 self.notices = status.notices;
                 self.recording_dir = status.recording_dir.or(self.recording_dir.take());
@@ -158,6 +165,14 @@ impl AppState {
 
     /// The line for `id`, created at the end if new. Recent lines are the
     /// ones still changing, so search from the end.
+    /// The latest level of the lane named `lane` ("mic", "speaker").
+    pub fn level(&self, lane: &str) -> Option<f32> {
+        self.levels
+            .iter()
+            .find(|(l, _)| l.as_str() == lane)
+            .map(|(_, v)| *v)
+    }
+
     fn line(&mut self, id: UtteranceId, lane: LaneLabel) -> &mut Line {
         match self.lines.iter().rposition(|l| l.id == id) {
             Some(i) => &mut self.lines[i],
@@ -189,6 +204,19 @@ mod tests {
 
     fn mic() -> LaneLabel {
         LaneLabel::new(LaneRole::Mic, 1)
+    }
+
+    #[test]
+    fn levels_are_kept_while_listening_and_dropped_once_it_ends() {
+        let mut s = AppState::default();
+        s.apply(Event::Levels(vec![(mic(), 0.4)]));
+        assert_eq!(s.level("mic"), Some(0.4));
+        s.apply(Event::Status(StatusView {
+            phase: Phase::Idle,
+            notices: Vec::new(),
+            recording_dir: None,
+        }));
+        assert_eq!(s.level("mic"), None);
     }
 
     fn step(id: u64, committed: &str, volatile: &str) -> Event {

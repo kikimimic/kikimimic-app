@@ -5,6 +5,7 @@ mod ask;
 mod detail;
 mod imports;
 mod live;
+mod palette;
 mod recordings;
 mod settings;
 mod shell;
@@ -12,6 +13,7 @@ mod subtitles;
 
 use std::time::Duration;
 
+use crate::theme;
 use gpui::{
     AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, MouseButton, MouseDownEvent,
     Pixels, Point, ScrollHandle, SharedString, Window, anchored, deferred, div, hsla, prelude::*,
@@ -71,6 +73,11 @@ pub struct MainWindow {
     auto_session: bool,
     /// The policy counts monotonic seconds from here.
     started_at: std::time::Instant,
+    /// When the current session started, for the elapsed time on screen.
+    session_started: Option<std::time::Instant>,
+    /// The calendar meeting's title, written to the recording once its
+    /// folder exists.
+    session_title: Option<String>,
     /// How an agent is called; tests put a fake here.
     run_agent: fn(kikimimic_core::agent::Agent, &str) -> anyhow::Result<String>,
     dest_selected: usize,
@@ -101,6 +108,12 @@ pub struct MainWindow {
     /// The recording the timeline's right-click menu is open for, and where.
     timeline_menu: Option<(std::path::PathBuf, Point<Pixels>)>,
     pub(crate) ui: Ui,
+    /// The window's own focus, where keys go when no field has them.
+    focus: gpui::FocusHandle,
+    /// ⌘K, while open.
+    palette: Option<palette::Palette>,
+    /// ⌘J: the question drawer at the right.
+    ask_open: bool,
 }
 
 fn gray() -> Hsla {
@@ -134,6 +147,36 @@ pub(crate) fn button(
         .child(label.into())
 }
 
+/// The one red button: stopping a recording.
+pub(crate) fn stop_button(
+    id: impl Into<gpui::ElementId>,
+    label: String,
+) -> gpui::Stateful<gpui::Div> {
+    button(id, label, false)
+        .bg(theme::danger())
+        .border_color(theme::danger())
+        .text_color(rgb(0xffffff))
+}
+
+/// Mutually exclusive choices drawn as one control, the chosen one dark.
+pub(crate) fn segmented(items: Vec<gpui::Stateful<gpui::Div>>) -> gpui::Div {
+    let mut row = div()
+        .flex()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::border())
+        .overflow_hidden();
+    for (i, item) in items.into_iter().enumerate() {
+        let item = item.rounded(px(0.)).border_0();
+        row = row.child(if i > 0 {
+            item.border_l_1().border_color(theme::border())
+        } else {
+            item
+        });
+    }
+    row
+}
+
 pub(crate) fn mm_ss(ms: u64) -> String {
     let s = ms / 1000;
     format!("{:02}:{:02}", s / 60, s % 60)
@@ -153,6 +196,14 @@ fn notice_text(ui: Ui, n: &Notice) -> String {
 }
 
 impl MainWindow {
+    /// How long the current session has been recording, `mm:ss`.
+    fn elapsed(&self) -> String {
+        mm_ss(
+            self.session_started
+                .map_or(0, |t| t.elapsed().as_millis() as u64),
+        )
+    }
+
     pub fn new(
         kkm: Kikimimic,
         state: Entity<AppState>,
@@ -163,8 +214,18 @@ impl MainWindow {
         cx.observe(&state, |this: &mut Self, state, cx| {
             // A session that just ended is a finished recording.
             let running = matches!(state.read(cx).phase, Phase::Listening | Phase::Stopping);
+            if let (Some(dir), true) = (state.read(cx).recording_dir.clone(), running)
+                && let Some(title) = this.session_title.take()
+            {
+                // A title the library refuses (too long, a line break) leaves
+                // the recording untitled, as it was before calendars.
+                let _ = library::set_title(&crate::paths::recordings_dir(), &dir, &title);
+                this.refresh_recordings(cx);
+            }
             if this.was_running && !running {
                 this.live_mode = None;
+                this.session_started = None;
+                this.session_title = None;
                 this.policy.stopped(false);
                 this.auto_session = false;
                 if let Some(dir) = state.read(cx).recording_dir.clone() {
@@ -280,6 +341,11 @@ impl MainWindow {
             policy: Default::default(),
             auto_session: false,
             started_at: std::time::Instant::now(),
+            session_started: None,
+            session_title: None,
+            focus: cx.focus_handle(),
+            palette: None,
+            ask_open: false,
             run_agent: kikimimic_core::agent::run,
             dest_selected: 0,
             dest_name: cx.new(|cx| TextInput::new("", cx)),
@@ -409,6 +475,11 @@ impl MainWindow {
         }
     }
 
+    pub(crate) fn toggle_ask(&mut self, cx: &mut Context<Self>) {
+        self.ask_open = !self.ask_open;
+        cx.notify();
+    }
+
     pub(crate) fn toggle_auto_record(&mut self, cx: &mut Context<Self>) {
         self.update_settings(|s| s.auto_record = !s.auto_record, cx);
     }
@@ -483,6 +554,11 @@ impl MainWindow {
             self.state.update(cx, |s, _| s.lines.clear());
         }
         self.live_mode = Some(mode);
+        self.session_started = Some(std::time::Instant::now());
+        self.session_title = match mode {
+            SessionMode::Meeting => self.calendar.read(cx).title_now(chrono::Utc::now()),
+            SessionMode::FaceToFace => None,
+        };
         // One advisor per meeting: dismissals and a stop do not carry over.
         self.advice = Default::default();
         self.view = View::Live;
@@ -492,8 +568,12 @@ impl MainWindow {
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.search_if_changed(cx);
+        // Shortcuts need somewhere to land before any field is clicked.
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
         let body = match self.view {
             View::Live => self.session(cx),
             View::Recording => self.recording_detail(cx),
@@ -517,10 +597,23 @@ impl Render for MainWindow {
             );
         }
         let main = main.child(div().flex_1().min_h_0().child(body));
+        let drawer = self.ask_open.then(|| self.ask_drawer(cx));
+        let palette = self.palette_overlay(cx);
         div()
             .size_full()
             .flex()
             .flex_col()
+            .relative()
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &crate::menus::ToggleAsk, _, cx| this.toggle_ask(cx)))
+            .on_action(
+                cx.listener(|this, _: &crate::menus::OpenPalette, window, cx| {
+                    this.open_palette(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &crate::menus::OpenSettings, _, cx| {
+                this.show(View::Settings, cx)
+            }))
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1f2328))
             .text_size(px(14.))
@@ -531,9 +624,11 @@ impl Render for MainWindow {
                     .min_h_0()
                     .flex()
                     .child(self.sidebar(cx))
-                    .child(main),
+                    .child(main)
+                    .children(drawer),
             )
             .child(self.footer(cx))
+            .children(palette)
     }
 }
 

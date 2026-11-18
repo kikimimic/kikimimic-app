@@ -305,6 +305,11 @@ impl Calendar {
         ongoing(&all, now)
     }
 
+    pub fn title_now(&self, now: DateTime<Utc>) -> Option<String> {
+        let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
+        title_now(&all, now)
+    }
+
     pub fn next_meeting(&self, now: DateTime<Utc>) -> Option<Meeting> {
         let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
         next(&all, now).cloned()
@@ -461,6 +466,19 @@ pub fn next(meetings: &[Meeting], now: DateTime<Utc>) -> Option<&Meeting> {
 }
 
 /// Whether a meeting is in progress: the signal automatic recording uses.
+/// How early a recording still counts as the meeting about to start.
+const EARLY: chrono::Duration = chrono::Duration::minutes(10);
+
+/// The title for a recording started at `now`: the meeting about to start
+/// if there is one, else the one in progress.
+pub fn title_now(meetings: &[Meeting], now: DateTime<Utc>) -> Option<String> {
+    meetings
+        .iter()
+        .filter(|m| m.start - EARLY <= now && now < m.end)
+        .max_by_key(|m| m.start)
+        .and_then(|m| m.title.clone())
+}
+
 pub fn ongoing(meetings: &[Meeting], now: DateTime<Utc>) -> bool {
     meetings.iter().any(|m| m.start <= now && now < m.end)
 }
@@ -510,6 +528,33 @@ mod tests {
             "between meetings nothing is on"
         );
         assert!(!ongoing(&meetings, at(11)), "a meeting is over at its end");
+    }
+
+    #[test]
+    fn a_recording_is_named_after_the_meeting_it_records() {
+        use chrono::TimeZone;
+        let at = |h: u32, m: u32| Utc.with_ymd_and_hms(2026, 11, 17, h, m, 0).unwrap();
+        let m = |title: Option<&str>, start: (u32, u32), end: (u32, u32)| Meeting {
+            key: String::new(),
+            title: title.map(Into::into),
+            start: at(start.0, start.1),
+            end: at(end.0, end.1),
+            join_url: None,
+        };
+        let meetings = [
+            m(Some("定例"), (10, 0), (11, 0)),
+            m(Some("設計レビュー"), (11, 0), (12, 0)),
+            m(None, (14, 0), (15, 0)),
+        ];
+        assert_eq!(title_now(&meetings, at(10, 30)).as_deref(), Some("定例"));
+        // Joining a few minutes early names it after the one about to start,
+        // not the one ending.
+        assert_eq!(
+            title_now(&meetings, at(10, 55)).as_deref(),
+            Some("設計レビュー")
+        );
+        assert_eq!(title_now(&meetings, at(12, 30)), None, "nothing on");
+        assert_eq!(title_now(&meetings, at(14, 5)), None, "untitled event");
     }
 
     fn events(items: &str) -> String {
