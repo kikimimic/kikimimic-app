@@ -57,7 +57,6 @@ pub struct MainWindow {
     /// The query `hits` answer, so a new query starts one search.
     searched: String,
     hits: Vec<kikimimic_core::search::Hit>,
-    list_filter: shell::ListFilter,
     /// Whether a session was running at the last state change.
     was_running: bool,
     /// Import jobs seen waiting or running in this run.
@@ -330,7 +329,6 @@ impl MainWindow {
             search,
             searched: String::new(),
             hits: Vec::new(),
-            list_filter: shell::ListFilter::All,
             was_running: false,
             imports_watched: Default::default(),
             section: settings::Section::General,

@@ -17,13 +17,6 @@ const SIDEBAR: f32 = 264.;
 /// The reading column never grows wider than this, however wide the window.
 const COLUMN: f32 = 860.;
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum ListFilter {
-    #[default]
-    All,
-    Unfinished,
-}
-
 /// What a recording is waiting for, read from its files. Slow enough (it
 /// reads the transcript) that the window computes it off the UI thread.
 pub(super) fn stage_of(dir: &Path, destinations: &[Destination]) -> Option<Stage> {
@@ -32,9 +25,9 @@ pub(super) fn stage_of(dir: &Path, destinations: &[Destination]) -> Option<Stage
     timeline::next_stage(&session, dir, minutes.as_ref(), destinations)
 }
 
-/// How far an unfinished recording got, named by the step it has done
-/// rather than the one it lacks: a list of "no this, no that" reads as a
-/// wall of problems, while "transcribed" reads as progress.
+/// How far a recording got, named by the step it has done rather than the
+/// one it lacks. Information, not a to-do: not every meeting is taken all
+/// the way to minutes, so none of them is shown as owing anything.
 fn stage_label(ui: Ui, next: Stage) -> &'static str {
     match next {
         Stage::Transcribe => ui.progress_none(),
@@ -123,10 +116,6 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn unfinished(&self) -> usize {
-        self.stages.values().filter(|s| s.is_some()).count()
-    }
-
     pub(super) fn top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
         let state = self.state.read(cx);
@@ -193,22 +182,7 @@ impl MainWindow {
         } else {
             left = left.child(div().text_color(theme::muted()).child(ui.idle()));
         }
-        let unfinished = self.unfinished();
         let mut right = div().flex().items_center().gap_2().flex_none();
-        if unfinished > 0 {
-            right = right.child(
-                div()
-                    .id("unfinished")
-                    .cursor_pointer()
-                    .text_size(px(12.))
-                    .text_color(theme::warn())
-                    .child(ui.unfinished_count(unfinished))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.list_filter = ListFilter::Unfinished;
-                        cx.notify();
-                    })),
-            );
-        }
         let keyed = |id: &'static str, label: &'static str, keys: &'static str, on: bool| {
             button(id, "", on)
                 .flex()
@@ -297,14 +271,6 @@ impl MainWindow {
                     cx.listener(|this, _, _, cx| this.start(SessionMode::FaceToFace, cx)),
                 ));
         }
-        let filter = |id: &'static str, label: String, f: ListFilter| {
-            button(id, label, self.list_filter == f)
-                .debug_selector(move || id.into())
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.list_filter = f;
-                    cx.notify();
-                }))
-        };
         let head = div()
             .flex()
             .flex_col()
@@ -313,19 +279,7 @@ impl MainWindow {
             .border_b_1()
             .border_color(theme::border())
             .child(record)
-            .child(self.search.clone())
-            .child(div().flex().child(segmented(vec![
-                filter(
-                    "filter-all",
-                    format!("{} {}", ui.filter_all(), self.recordings.len()),
-                    ListFilter::All,
-                ),
-                filter(
-                    "filter-unfinished",
-                    format!("{} {}", ui.filter_unfinished(), self.unfinished()),
-                    ListFilter::Unfinished,
-                ),
-            ])));
+            .child(self.search.clone());
 
         div()
             .w(px(SIDEBAR))
@@ -360,23 +314,18 @@ impl MainWindow {
             .recordings
             .iter()
             .filter(|r| {
-                (self.list_filter == ListFilter::All
-                    || self
-                        .stages
-                        .get(Path::new(&r.dir))
-                        .is_some_and(|s| s.is_some()))
-                    && (query.is_empty()
-                        || r.title
-                            .as_deref()
-                            .unwrap_or(&r.name)
-                            .to_lowercase()
-                            .contains(&query)
-                        || r.snippet.to_lowercase().contains(&query))
+                query.is_empty()
+                    || r.title
+                        .as_deref()
+                        .unwrap_or(&r.name)
+                        .to_lowercase()
+                        .contains(&query)
+                    || r.snippet.to_lowercase().contains(&query)
             })
             .cloned()
             .collect();
         let days = timeline::group_by_day(&recordings);
-        let limit = if self.show_older || !query.is_empty() || self.list_filter != ListFilter::All {
+        let limit = if self.show_older || !query.is_empty() {
             days.len()
         } else {
             days.len().min(7)
@@ -431,7 +380,7 @@ impl MainWindow {
                         div()
                             .flex_none()
                             .text_size(px(10.5))
-                            .text_color(theme::warn())
+                            .text_color(theme::muted())
                             .child(stage_label(ui, stage)),
                     );
                 }
