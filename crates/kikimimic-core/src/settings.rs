@@ -19,6 +19,12 @@ pub struct Settings {
     /// Empty the session screen when a recording starts.
     #[serde(default)]
     pub clear_on_start: bool,
+    /// Opt in to persisting microphone-only sessions.
+    #[serde(default)]
+    pub save_face_to_face: bool,
+    /// Where recordings are written, under which name and in which format.
+    #[serde(default = "crate::destinations::defaults")]
+    pub destinations: Vec<crate::destinations::Destination>,
 }
 
 impl Settings {
@@ -29,6 +35,8 @@ impl Settings {
             asr_model: catalog.defaults.asr.clone(),
             mt_model: catalog.defaults.mt.clone(),
             clear_on_start: false,
+            save_face_to_face: false,
+            destinations: crate::destinations::defaults(),
         }
     }
 
@@ -98,6 +106,18 @@ mod tests {
         let p = path("roundtrip");
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p, c), s);
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn settings_saved_before_destinations_existed_get_the_default_one() {
+        let c = Catalog::builtin();
+        let p = path("pre-destinations");
+        let mut old = toml::Table::try_from(Settings::defaults(c)).unwrap();
+        old.remove("destinations");
+        std::fs::write(&p, toml::to_string(&old).unwrap()).unwrap();
+        let loaded = Settings::load(&p, c);
+        assert_eq!(loaded.destinations, crate::destinations::defaults());
         std::fs::remove_file(p).unwrap();
     }
 

@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>24 単語で追って読む — Kikimimic</title>
+<meta name="kkm-concept" content="録音詳細は大きめの文字の読書画面。再生中の単語が黒地で進み、単語を押すとそこから聞ける">
+<meta name="kkm-why" content="後日、音声を聞き直しながら文字起こしを確かめる人向け。聞きながら読むなら、いまどの単語かが一目で分かり、気になった単語からすぐ聞き直せるのが一番速い">
+<meta name="kkm-tradeoff" content="編集機能は控えめ（「直す」に切り替えたときだけ話者・校閲・区切りを触れる）。統計と質問は「この会議」メニューの奥">
+<link rel="stylesheet" href="shared/kit.css">
+<style>
+.topnav { display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+.main { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.pad { padding: 12px 16px; }
+.hstack { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vstack { display: flex; flex-direction: column; gap: 8px; }
+.grow { flex: 1; min-width: 0; }
+.bb { border-bottom: 1px solid var(--border); }
+.bt { border-top: 1px solid var(--border); }
+.fill { flex: 1; min-height: 0; }
+.center { max-width: 680px; margin: 0 auto; width: 100%; }
+.lane { font-size: 12px; font-weight: 600; width: 48px; flex: 0 0 auto; }
+.live-line { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bg-subtle); }
+.playerbar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); flex: 0 0 auto; }
+.playerbar .bar { flex: 1; cursor: pointer; height: 8px; border-radius: 4px; }
+.set-sec { padding: 14px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.set-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+table.q { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.q td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+pre.out { background: var(--bg-subtle); border-radius: var(--radius); padding: 10px; max-height: 280px; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre-wrap; margin: 0; }
+.hl { background: var(--warn-soft); }
+.drop { border: 1px dashed var(--border-hover); border-radius: var(--radius); padding: 18px; text-align: center; }
+.cutin .hstack { margin-top: 10px; }
+details > summary { cursor: pointer; }
+.d-head { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.rd-body { flex: 1; min-height: 0; display: flex; }
+.reader { flex: 1; min-width: 0; overflow-y: auto; }
+.page { max-width: 760px; margin: 0 auto; padding: 24px 24px 120px; }
+.para { display: flex; gap: 16px; padding: 10px 0; }
+.para .gut { width: 92px; flex: 0 0 auto; text-align: right; display: flex; flex-direction: column; gap: 2px; padding-top: 4px; font-size: 12px; color: var(--muted); }
+.para .words { font-size: 18px; line-height: 1.9; margin: 0; }
+.para .words .w { padding: 1px 0; }
+.para .tr { margin: 2px 0 0; font-size: 14px; }
+.para.done .words { color: var(--muted-2); }
+.edit .para .words .w:hover { background: var(--danger-soft); }
+.side24 { width: 300px; flex: 0 0 auto; border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+.transport { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border); flex: 0 0 auto; }
+.transport .bar { flex: 1; height: 8px; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="mock-nav"><a href="index.html">← 一覧</a> · 24 単語で追って読む</div>
+<div class="win" id="win">
+  <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="t">Kikimimic</span></div>
+  <div class="menubar" id="menubar"></div>
+  <div class="topnav" id="nav"></div>
+  <div class="main" id="main"></div>
+</div>
+<script src="shared/data.js"></script>
+<script>
+// ===== common: utilities =====
+const K = window.KKM;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = K.mmss;
+const WIN = () => $("#win");
+const ACT = {}, CHG = {}, INP = {};
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (el && ACT[el.dataset.act]) { ACT[el.dataset.act](el, e); return; }
+  if (!e.target.closest(".menu")) $$(".menu").forEach((m) => m.remove());
+});
+document.addEventListener("change", (e) => { const el = e.target.closest("[data-chg]"); if (el && CHG[el.dataset.chg]) CHG[el.dataset.chg](el, e); });
+document.addEventListener("input", (e) => { const el = e.target.closest("[data-inp]"); if (el && INP[el.dataset.inp]) INP[el.dataset.inp](el, e); });
+
+function toast(msg) {
+  $$(".toast").forEach((t) => t.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; WIN().appendChild(t);
+  setTimeout(() => t.remove(), 2400);
+}
+function sheet(html, id = "") {
+  closeSheet();
+  const s = document.createElement("div"); s.className = "scrim"; s.id = "scrim";
+  s.innerHTML = `<div class="sheet" ${id ? `id="${id}"` : ""}>${html}</div>`;
+  s.addEventListener("click", (e) => { if (e.target === s) closeSheet(); });
+  WIN().appendChild(s); return s.firstChild;
+}
+function closeSheet() { const s = $("#scrim"); if (s) s.remove(); }
+ACT["close-sheet"] = closeSheet;
+function menu(anchor, items) {
+  $$(".menu").forEach((m) => m.remove());
+  const m = document.createElement("div"); m.className = "menu";
+  const w = WIN().getBoundingClientRect(), a = anchor.getBoundingClientRect();
+  m.style.top = (a.bottom - w.top + 4) + "px";
+  m.style.left = Math.min(a.left - w.left, w.width - 240) + "px";
+  items.forEach(([label, fn]) => {
+    const b = document.createElement("button");
+    if (!fn) { b.disabled = true; b.className = "meta"; }
+    b.textContent = label; b.onclick = (e) => { e.stopPropagation(); m.remove(); fn && fn(); };
+    m.appendChild(b);
+  });
+  WIN().appendChild(m);
+}
+const sheetHead = (title) => `<div class="hstack" style="margin-bottom:10px"><h2 class="grow">${title}</h2><button class="btn sm ghost" data-act="close-sheet">閉じる</button></div>`;
+const nowStr = () => { const d = new Date(); return `2026-11-17 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const recById = (id) => K.recordings.find((r) => r.id === id);
+const modelName = (id) => (K.models.find((m) => m.id === id) || {}).name || "なし";
+
+// "この案について"
+ACT.about = () => {
+  const m = (n) => esc(($(`meta[name="${n}"]`) || {}).content || "");
+  sheet(sheetHead("この案について") + `<div class="vstack">
+    <div><div class="meta">コンセプト</div>${m("kkm-concept")}</div>
+    <div><div class="meta">仮説と理由</div>${m("kkm-why")}</div>
+    <div><div class="meta">捨てるもの</div>${m("kkm-tradeoff")}</div></div>`);
+};
+
+// ===== common: state =====
+const S = {
+  tab: "session", recId: null,
+  session: { status: "idle", mode: null, lines: [], handle: null, auto: false, cards: [], showAdvisor: false, advisorStopped: false, advisorMuted: false, question: null, deviceNotice: null, title: null },
+  auto: { state: K.settings.autoRecord ? "waiting" : "off", manualStopped: false, countdown: 0, timer: null, error: null },
+  cal: { signedIn: !!K.calendar.signedIn, signingIn: false },
+  dirty: {}, cues: {}, identifying: {}, dl: {}, player: null, playerRec: null,
+  ev: { rec: "r1", ref: "weekly.rttm", mode: "der", from: 0, to: 70, collar: K.evaluation.collarMs, overlap: K.evaluation.overlap, ran: false },
+  removedFolders: {},
+};
+const TABS = [["session", "セッション"], ["recordings", "録音"], ["search", "検索"], ["models", "モデル"], ["settings", "設定"]];
+
+function render() {
+  renderMenubar();
+  $("#nav").innerHTML = TABS.map(([k, l]) => `<button class="btn ${S.tab === k ? "sel" : ""}" data-act="tab" data-tab="${k}">${l}</button>`).join("")
+    + `<span class="grow"></span>` + sessionMini();
+  const main = $("#main"); main.innerHTML = "";
+  if (S.tab === "session") renderSession(main);
+  else if (S.tab === "recordings") { const r = recById(S.recId); r ? VARIANT.detail(main, r) : renderList(main); }
+  else if (S.tab === "search") renderSearch(main);
+  else if (S.tab === "models") renderModels(main);
+  else renderSettings(main);
+  if (!$("#about-btn")) {
+    const b = document.createElement("button"); b.id = "about-btn"; b.className = "btn sm ghost"; b.dataset.act = "about";
+    b.textContent = "この案について"; b.style.cssText = "position:fixed;right:8px;bottom:4px;z-index:100"; document.body.appendChild(b);
+  }
+}
+ACT.tab = (el) => { S.tab = el.dataset.tab; if (S.tab === "recordings" && el.dataset.list) S.recId = null; render(); };
+// Small "now recording" indicator in the nav so the live session stays reachable from any tab.
+function sessionMini() {
+  const ss = S.session;
+  if (ss.status === "listening") return `<span class="chip rec"><span class="dot-rec"></span>録音中 <span class="num" id="mini-t">${fmt(ss.handle.elapsed())}</span></span><button class="btn sm" data-act="stop">■ 停止</button>`;
+  if (ss.status === "finishing") return `<span class="meta">翻訳を仕上げています…</span>`;
+  return "";
+}
+
+// ===== common: menu bar status item (#18) =====
+function autoLabel() {
+  const a = S.auto, ss = S.session;
+  if (ss.status === "listening") return a.countdown > 0 ? `● 録音中 · ${a.countdown} 秒後に自動停止` : `● 録音中${ss.auto ? "（自動）" : ""}`;
+  if (a.state === "error") return "自動録音: エラー";
+  if (a.state === "waiting") return a.manualStopped ? "自動録音: 待機中（この会議は再開しない）" : "自動録音: 待機中";
+  return "待機中";
+}
+function renderMenubar() {
+  $("#menubar").innerHTML = `<span data-act="mb-menu" style="cursor:pointer" class="${S.auto.state === "error" ? "err" : ""}">Kikimimic: ${esc(autoLabel())}</span><span class="meta">11:28</span>`;
+}
+ACT["mb-menu"] = (el) => {
+  const live = S.session.status === "listening";
+  menu(el, [
+    [autoLabel(), null],
+    live ? ["■ 停止", () => stopSession(true)] : ["● 会議を録音", () => startSession("meeting")],
+    [`自動録音: ${K.settings.autoRecord ? "オン" : "オフ"}（切り替え）`, () => setAutoRecord(!K.settings.autoRecord)],
+    ["（デモ）会議アプリが通話を開始", autoMeetingStarted],
+    ["（デモ）会議が終了", autoMeetingEnded],
+    ["（デモ）自動録音のエラー", () => { S.auto.state = "error"; S.auto.error = "システム音声を取得できません（画面とシステムオーディオ録音の権限）"; render(); }],
+    ["（デモ）カレンダーのカード", showCutin],
+    ["ウィンドウを開く", () => { S.tab = "session"; render(); }],
+  ]);
+};
+function setAutoRecord(on) { K.settings.autoRecord = on; S.auto.state = on ? "waiting" : "off"; S.auto.error = null; render(); }
+function autoMeetingStarted() {
+  if (!K.settings.autoRecord) return toast("自動録音はオフです（設定 > 録音）");
+  if (S.auto.state === "error") return toast("自動録音はエラーのため開始できません");
+  if (S.auto.manualStopped) return toast("手動で停止した会議なので再開しません");
+  if (S.session.status !== "idle") return;
+  startSession("meeting", { auto: true, title: "Zoom 会議（自動録音）" });
+}
+function autoMeetingEnded() {
+  if (S.session.status !== "listening" || !S.session.auto) { S.auto.manualStopped = false; render(); return toast("会議が終了しました"); }
+  S.auto.countdown = 60; clearInterval(S.auto.timer);
+  S.auto.timer = setInterval(() => { // demo runs 10x faster
+    S.auto.countdown--; renderMenubar();
+    if (S.auto.countdown <= 0) { clearInterval(S.auto.timer); stopSession(false); toast("会議が終わって 60 秒たったので自動停止しました"); }
+  }, 100);
+  renderMenubar();
+}
+// ===== common: live session (#1 #2 #3 #16 #17) =====
+function startSession(mode, opts = {}) {
+  const ss = S.session; if (ss.status !== "idle") return;
+  if (K.settings.clearOnStart) ss.lines = [];
+  Object.assign(ss, { status: "listening", mode, auto: !!opts.auto, title: opts.title || null, cards: [], showAdvisor: false, advisorStopped: false, advisorMuted: false, question: null, deviceNotice: null });
+  ss.handle = K.live(K.settings.translateInto ? mode : "noTranslate", onLive);
+  ss.tick = setInterval(() => { const t = $("#mini-t"); if (t && ss.handle) t.textContent = fmt(ss.handle.elapsed()); }, 1000);
+  closeCutin(); S.tab = "session"; render();
+}
+function stopSession(manual) {
+  const ss = S.session; if (ss.status !== "listening") return;
+  ss.handle.stop(); clearInterval(ss.tick); clearInterval(S.auto.timer); S.auto.countdown = 0;
+  if (ss.auto && manual) S.auto.manualStopped = true;
+  ss.status = "finishing"; ss.question = null; render();
+  setTimeout(() => {
+    ss.status = "idle";
+    const keep = ss.mode === "meeting" || (ss.mode === "face" && K.settings.saveFaceToFace);
+    if (keep && ss.lines.some((l) => l.text)) { saveLive(); toast("録音一覧に保存しました"); }
+    else if (ss.mode === "face") toast("対面の会話は保存しませんでした（設定で変更できます）");
+    render();
+  }, 1500);
+}
+function saveLive() {
+  const ss = S.session, id = "n" + Date.now();
+  const utts = ss.lines.filter((l) => l.text).map((l, i) => ({
+    id: id + "u" + i, lane: l.lane, spk: null, start: l.at, end: l.at + 2600, text: l.text,
+    units: l.text.split(/(?<=\s)|(?<=[、。])/), tr: l.tr, reviewed: false }));
+  const last = utts[utts.length - 1];
+  K.recordings.push({ id, title: ss.title || (ss.mode === "face" ? "対面の会話" : "会議の録音"), date: nowStr(), durationMs: last.end + 1000,
+    source: ss.mode, lanes: ss.mode === "face" ? ["Me"] : ["Me", "Them"], speakers: {}, utterances: utts, minutes: null, stats: null, advisor: [], diarized: false, status: "transcribed", note: null });
+}
+function onLive(ev) {
+  const ss = S.session, line = ss.lines.find((l) => l.id === ev.id);
+  // Lines erased by "クリア" mid-session still receive late updates from the engine; drop them.
+  if (!line && ["update", "commit", "translating", "translate"].includes(ev.type)) return;
+  if (ev.type === "line") ss.lines.push({ id: ev.id, lane: ev.lane, at: ev.at, committed: "", volatile: "", text: "", tr: null, state: "open" });
+  else if (ev.type === "update") Object.assign(line, { committed: ev.committed, volatile: ev.volatile });
+  else if (ev.type === "commit") Object.assign(line, { committed: ev.text, volatile: "", text: ev.text, state: "committed" });
+  else if (ev.type === "translating") line.state = "translating";
+  else if (ev.type === "translate") Object.assign(line, { tr: ev.text, state: "done" });
+  else if (ev.type === "advisor") { if (!ss.advisorStopped && !ss.advisorMuted) ss.cards.push(ev.card); }
+  else if (ev.type === "question") { if (ss.mode === "meeting") ss.question = ev; }
+  if (S.tab === "session") (ev.type === "line" || ev.type === "update" || ev.type === "commit" || ev.type === "translating" || ev.type === "translate") ? renderLines() : renderSession($("#main"));
+}
+const laneColor = (lane) => lane === "Me" ? "var(--lane-me)" : lane === "Them" ? "var(--lane-them)" : "var(--muted-2)";
+function lineHTML(l) {
+  const tr = l.tr ? `<div class="tr">${esc(l.tr)}</div>` : l.state === "translating" ? `<div class="meta">訳しています…</div>` : "";
+  return `<div class="live-line" id="ll-${l.id}"><span class="lane" style="color:${laneColor(l.lane)}">${l.lane}</span>
+    <div class="grow"><div>${esc(l.committed)}<span class="vol">${esc(l.volatile)}</span></div>${tr}</div></div>`;
+}
+function renderLines() {
+  const box = $("#live-lines"); if (!box) return;
+  const ss = S.session;
+  box.innerHTML = ss.lines.length ? ss.lines.map(lineHTML).join("") : `<div class="meta">${ss.status === "idle" ? "「● 会議を録音」か「対面」で始めます。" : "聞き取り中…"}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+function statusText() {
+  const ss = S.session;
+  if (ss.status === "listening") return `聞き取り中 · ${ss.mode === "face" ? "対面（マイクのみ）" : "会議（Me = マイク / Them = システム音声）"}`;
+  if (ss.status === "finishing") return "翻訳を仕上げています…";
+  return "待機中";
+}
+function renderSession(main) {
+  const ss = S.session, live = ss.status === "listening", next = K.calendar.events[0];
+  const face = `<span class="chip ${K.settings.saveFaceToFace ? "ok" : ""}" data-act="toggle-face-save" style="cursor:pointer" title="切り替え">対面: ${K.settings.saveFaceToFace ? "保存する" : "保存しない"}</span>`;
+  const advisorBtn = !live ? "" : ss.advisorStopped
+    ? `<button class="btn sm" data-act="advisor-resume">アドバイザー（停止中）</button>`
+    : `<button class="btn sm" data-act="advisor-open">アドバイザー${ss.cards.length ? `（${ss.cards.length}）` : ""}</button>`;
+  const notices = [];
+  if (ss.question) notices.push(`<div class="notice"><span class="grow">出力が ${esc(ss.question.detected)} に変わりました（いまは ${esc(ss.question.capturing)} を録音中）。切り替えますか？</span><button class="btn sm" data-act="dev-follow">切り替える</button><button class="btn sm" data-act="dev-stay">そのまま</button></div>`);
+  if (ss.deviceNotice) notices.push(`<div class="notice"><span class="grow">${esc(ss.deviceNotice)}</span><button class="btn sm ghost" data-act="dev-dismiss">閉じる</button></div>`);
+  if (S.auto.state === "error") notices.push(`<div class="notice error"><span class="grow">自動録音: ${esc(S.auto.error)}</span><button class="btn sm" data-act="auto-retry">再試行</button></div>`);
+  const cards = live && ss.showAdvisor && !ss.advisorStopped ? ss.cards.map((c) => `<div class="card vstack" style="gap:6px">
+      <div class="hstack"><span class="chip info">${esc(c.kind)}</span><span class="grow"></span><button class="btn sm ghost" data-act="adv-close" data-id="${c.id}">閉じる</button></div>
+      <div>${esc(c.text)} <span class="cite" data-act="live-cite" data-id="${c.ev[0]}">根拠</span></div>
+      <div class="hstack"><button class="btn sm" data-act="adv-mute">この会議では出さない</button><button class="btn sm" data-act="adv-stop">停止</button></div></div>`).join("") : "";
+  main.innerHTML = `<div class="pad hstack bb">
+      ${live ? `<button class="btn" data-act="stop">■ 停止</button>` : `<button class="btn rec" data-act="start" data-mode="meeting" ${ss.status !== "idle" ? "disabled" : ""}>● 会議を録音</button><button class="btn" data-act="start" data-mode="face" ${ss.status !== "idle" ? "disabled" : ""}>対面</button>`}
+      <span class="meta">${statusText()}</span>${face}<span class="grow"></span>${advisorBtn}
+      <button class="btn sm ghost" data-act="clear-live">クリア</button></div>
+    ${notices.length ? `<div class="pad vstack" style="padding-bottom:0">${notices.join("")}</div>` : ""}
+    ${!live && S.cal.signedIn && next ? `<div class="pad hstack meta" style="padding-bottom:0">次の予定: ${esc(next.title)} ${next.start}（あと ${next.inMin} 分）<button class="btn sm" data-act="start-cal">この会議を録音</button></div>` : ""}
+    ${cards ? `<div class="pad vstack" style="padding-bottom:0">${cards}</div>` : ""}
+    <div class="pad scroll fill" id="live-lines"></div>`;
+  renderLines();
+}
+ACT.start = (el) => startSession(el.dataset.mode);
+ACT["start-cal"] = () => startSession("meeting", { title: K.calendar.events[0].title });
+ACT.stop = () => stopSession(true);
+ACT["clear-live"] = () => { S.session.lines = []; renderLines(); };
+ACT["toggle-face-save"] = () => { K.settings.saveFaceToFace = !K.settings.saveFaceToFace; render(); };
+ACT["dev-follow"] = () => { const q = S.session.question; S.session.deviceNotice = `${q.detected} を録音しています`; S.session.question = null; render(); };
+ACT["dev-stay"] = () => { const q = S.session.question; S.session.deviceNotice = `${q.capturing} を録音しています`; S.session.question = null; render(); };
+ACT["dev-dismiss"] = () => { S.session.deviceNotice = null; render(); };
+ACT["auto-retry"] = () => { S.auto.state = "waiting"; S.auto.error = null; render(); toast("自動録音: 待機中に戻りました"); };
+ACT["advisor-open"] = () => { S.session.showAdvisor = true; if (!S.session.cards.length) toast("いまのところ提案はありません"); render(); };
+ACT["advisor-resume"] = () => { S.session.advisorStopped = false; render(); };
+ACT["adv-close"] = (el) => { S.session.cards = S.session.cards.filter((c) => c.id !== el.dataset.id); render(); };
+ACT["adv-mute"] = () => { S.session.advisorMuted = true; S.session.cards = []; render(); toast("この会議ではアドバイザーを出しません"); };
+ACT["adv-stop"] = () => { S.session.advisorStopped = true; S.session.cards = []; render(); };
+ACT["live-cite"] = (el) => { const n = $("#ll-" + el.dataset.id); if (n) { n.scrollIntoView({ block: "center" }); n.classList.remove("flash"); void n.offsetWidth; n.classList.add("flash"); } };
+
+// ===== common: calendar cut-in (#7) =====
+function showCutin() {
+  if (!S.cal.signedIn) return toast("Google カレンダーにサインインしていません（設定）");
+  closeCutin(); const e = K.calendar.events[0];
+  const c = document.createElement("div"); c.className = "cutin"; c.id = "cutin";
+  c.innerHTML = `<div class="meta">Google カレンダー · あと ${e.inMin}:00</div><div style="font-weight:600;font-size:15px">${esc(e.title)}</div>
+    <div class="meta">${e.start} · ${esc(e.url || "")}</div>
+    <div class="hstack"><button class="btn sm primary" data-act="cut-join">参加して録音</button><button class="btn sm" data-act="cut-rec">録音を開始</button><span class="grow"></span><button class="btn sm" data-act="cut-close">閉じる</button></div>`;
+  WIN().appendChild(c);
+}
+function closeCutin() { const c = $("#cutin"); if (c) c.remove(); }
+ACT["cut-join"] = () => { toast("会議の URL を開きました"); startSession("meeting", { title: K.calendar.events[0].title }); };
+ACT["cut-rec"] = () => startSession("meeting", { title: K.calendar.events[0].title });
+ACT["cut-close"] = closeCutin;
+// ===== common: models (#5 #20) =====
+const KINDS = [["asr", "文字起こし", "asr"], ["mt", "翻訳", "mt"], ["diar", "話者分離", "diar"]];
+function modelState(m) {
+  if (S.dl[m.id] != null) return `<span class="meta num">ダウンロード中 ${Math.round(S.dl[m.id])}%</span><div class="bar" style="width:120px"><i style="width:${S.dl[m.id]}%"></i></div>`;
+  if (m.state === "license") return `<button class="btn sm" data-act="lic" data-id="${m.id}">ライセンスを表示</button>`;
+  if (m.state === "none") return `<button class="btn sm" data-act="dl" data-id="${m.id}">ダウンロード</button>`;
+  const label = m.state === "builtin" ? `<span class="chip">macOS 標準</span>` : `<span class="chip ok">使用可能</span>`;
+  return label + (m.inUse ? `<span class="chip info">使用中</span>` : `<button class="btn sm" data-act="use-model" data-id="${m.id}">使う</button>`);
+}
+function renderModels(main) {
+  main.innerHTML = `<div class="scroll fill pad"><div class="center vstack">${KINDS.map(([k, label]) => `<h3 style="margin-top:8px">${label}</h3>
+    ${K.models.filter((m) => m.kind === k).map((m) => `<div class="card hstack" id="m-${m.id}"><div class="grow"><div>${esc(m.name)}</div>
+      <div class="meta">${m.size} · ライセンス: ${esc(m.license)}${m.id === "nemotron" ? " · 暫定の選択肢" : ""}</div></div>${modelState(m)}</div>`).join("")}`).join("")}</div></div>`;
+}
+ACT.lic = (el) => {
+  const m = K.models.find((x) => x.id === el.dataset.id);
+  sheet(sheetHead(esc(m.name)) + `<div class="vstack"><div class="meta">ライセンス: ${esc(m.license)}</div>
+    <pre class="out">${esc(m.license)} License\n\nこのモデルの重みは上記ライセンスの条件で配布されています。\n商用利用・再配布の条件はライセンス本文を確認してください。\nダウンロードしたモデルはこのコンピュータの中だけで使われます。</pre>
+    <div class="hstack"><span class="grow"></span><button class="btn" data-act="close-sheet">キャンセル</button><button class="btn primary" data-act="lic-ok" data-id="${m.id}">ライセンスに同意</button></div></div>`);
+};
+ACT["lic-ok"] = (el) => { K.models.find((x) => x.id === el.dataset.id).state = "none"; closeSheet(); render(); toast("同意しました。ダウンロードできます"); };
+ACT.dl = (el) => {
+  const id = el.dataset.id; S.dl[id] = 0; render();
+  const t = setInterval(() => {
+    S.dl[id] = Math.min(100, S.dl[id] + 9);
+    if (S.dl[id] >= 100) { clearInterval(t); delete S.dl[id]; K.models.find((x) => x.id === id).state = "ready"; }
+    if (S.tab === "models") render();
+  }, 180);
+};
+function useModel(id) {
+  const m = K.models.find((x) => x.id === id);
+  K.models.filter((x) => x.kind === m.kind).forEach((x) => (x.inUse = x.id === id));
+  K.settings[m.kind] = id;
+}
+ACT["use-model"] = (el) => { useModel(el.dataset.id); render(); };
+
+// ===== common: settings (#6 #7 #11 #17 #18 #19 #20) =====
+const usable = (m) => m.state === "ready" || m.state === "builtin";
+const tog = (on, act) => `<button class="toggle ${on ? "on" : ""}" data-act="${act}"></button>`;
+function modelSelect(kind, allowNone) {
+  return `<select class="input" data-chg="model-sel" data-kind="${kind}">${allowNone ? `<option value="" ${!K.settings[kind] ? "selected" : ""}>なし</option>` : ""}
+    ${K.models.filter((m) => m.kind === kind).map((m) => `<option value="${m.id}" ${K.settings[kind] === m.id ? "selected" : ""} ${usable(m) ? "" : "disabled"}>${esc(m.name)}${usable(m) ? "" : "（未ダウンロード）"}</option>`).join("")}</select>`;
+}
+function renderSettings(main) {
+  const st = K.settings, a = S.auto;
+  const autoChip = { off: `<span class="chip">オフ</span>`, waiting: `<span class="chip">待機中</span>`, error: `<span class="chip warn">エラー</span>` }[a.state];
+  const cal = S.cal.signedIn
+    ? `<div class="set-row"><span>${K.calendar.signedIn} でサインイン中 <span class="meta">· 最後に読んだ時刻 ${K.calendar.lastRead}</span></span><span class="hstack"><button class="btn sm" data-act="cutin-test">カードを試す</button><button class="btn sm" data-act="cal-out">サインアウト</button></span></div>`
+    : S.cal.signingIn ? `<div class="set-row"><span class="meta">ブラウザでサインインを完了してください…</span><button class="btn sm" data-act="cal-cancel">キャンセル</button></div>`
+    : `<div><button class="btn" data-act="cal-in">Google でサインイン</button></div>`;
+  main.innerHTML = `<div class="scroll fill pad"><div class="center">
+  <div class="set-sec"><h3>言語</h3>
+    <div class="set-row"><span>話される言語（最大2つ）</span><span class="hstack">${Object.entries(K.langs).map(([k, v]) => `<button class="btn sm ${st.spoken.includes(k) ? "sel" : ""}" data-act="spoken" data-k="${k}">${v}</button>`).join("")}</span></div>
+    <div class="set-row"><span>翻訳先</span><select class="input" data-chg="tr-into"><option value="">翻訳しない</option>${Object.entries(K.langs).map(([k, v]) => `<option value="${k}" ${st.translateInto === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+    <div class="set-row"><span>逆方向にも翻訳する（⇄）</span>${tog(st.mutual, "mutual")}</div></div>
+  <div class="set-sec"><h3>モデル</h3>
+    <div class="set-row"><span>文字起こしモデル</span>${modelSelect("asr")}</div>
+    <div class="set-row"><span>翻訳モデル</span>${modelSelect("mt", true)}</div>
+    <div class="set-row"><span>話者分離モデル <span class="meta">（Nemotron は暫定）</span></span>${modelSelect("diar")}</div>
+    <div><button class="btn sm ghost" data-act="tab" data-tab="models">モデルの管理 →</button></div></div>
+  <div class="set-sec"><h3>辞書</h3><div class="meta">誤認識を正しい表記に直し、翻訳でもその表記を保ちます。</div>
+    ${st.glossary.map(([a1, b], i) => `<div class="hstack"><span class="grow">${esc(a1)} <span class="meta">→</span> ${esc(b)}</span><button class="btn sm ghost danger" data-act="gl-del" data-i="${i}">削除</button></div>`).join("")}
+    <div class="hstack"><input class="input grow" id="gl-a" placeholder="誤認識された表記"><input class="input grow" id="gl-b" placeholder="正しい表記"><button class="btn" data-act="gl-add">追加</button></div></div>
+  <div class="set-sec"><h3>録音</h3>
+    <div class="set-row"><span>録音開始時に画面をクリアする（オフのときは右クリックでクリア）</span>${tog(st.clearOnStart, "clear-start")}</div>
+    <div class="set-row"><span>対面の会話を保存する <span class="meta">（既定: 保存しない）</span></span>${tog(st.saveFaceToFace, "toggle-face-save")}</div>
+    <div class="set-row"><span>自動録音 ${autoChip} <div class="meta">会議アプリの通話で録音を始め、会議が終わって ${st.autoStopGraceSec} 秒で止めます。手動で止めた会議は再開しません。</div></span>${tog(st.autoRecord, "auto-rec")}</div>
+    ${a.state === "error" ? `<div class="notice error"><span class="grow">${esc(a.error)}</span><button class="btn sm" data-act="auto-retry">再試行</button></div>` : ""}</div>
+  <div class="set-sec"><h3>Google カレンダー</h3><div class="meta">会議が始まる直前に画面の上にカードを出し、ワンクリックで録音を始められます。読むのはカレンダーだけで、音声と文字起こしは外に出ません。</div>${cal}</div>
+  ${obsidianSettingsHTML()}
+  <div class="set-sec"><h3>アドバイザー</h3><div class="set-row"><span>提案は「アドバイザー」を押したときだけ</span><span class="chip">手動のみ</span></div></div>
+  <div class="set-sec"><h3>Web 調べもの</h3>
+    <div class="set-row"><span>質問に答えられないとき、確認した検索語だけを Web に送る <span class="meta">（既定: オフ）</span></span>${tog(st.webResearch, "web")}</div>
+    <div class="card vstack" style="gap:4px"><div class="meta">データの境界</div>
+      <div><span class="chip ok">このコンピュータの中</span> 音声・文字起こし・訳文・議事録・話者名</div>
+      <div><span class="chip">外に出る</span> カレンダーの読み取り（Google）${st.webResearch ? "、確認した検索語（Web 調べもの）" : ""}</div></div></div>
+  <div class="set-sec"><details><summary><h3 style="display:inline">詳細</h3> <span class="meta">開発者向け</span></summary>
+    <div class="set-row" style="margin-top:8px"><span>話者分離の評価 <span class="meta">（参照 RTTM との DER / モデル間の不一致）</span></span><button class="btn sm" data-act="eval-open">評価を開く</button></div></details></div>
+  </div></div>`;
+}
+ACT.spoken = (el) => {
+  const sp = K.settings.spoken, k = el.dataset.k;
+  if (sp.includes(k)) { if (sp.length > 1) sp.splice(sp.indexOf(k), 1); }
+  else if (sp.length >= 2) return toast("話される言語は2つまでです");
+  else sp.push(k);
+  render();
+};
+CHG["tr-into"] = (el) => { K.settings.translateInto = el.value || null; };
+CHG["model-sel"] = (el) => { if (el.value) useModel(el.value); else K.settings[el.dataset.kind] = null; };
+ACT.mutual = () => { K.settings.mutual = !K.settings.mutual; render(); };
+ACT["clear-start"] = () => { K.settings.clearOnStart = !K.settings.clearOnStart; render(); };
+ACT["auto-rec"] = () => setAutoRecord(!K.settings.autoRecord);
+ACT["gl-del"] = (el) => { K.settings.glossary.splice(+el.dataset.i, 1); render(); };
+ACT["gl-add"] = () => { const a = $("#gl-a").value.trim(), b = $("#gl-b").value.trim(); if (!a || !b) return toast("2つとも入力してください"); K.settings.glossary.push([a, b]); render(); };
+ACT["cal-in"] = () => { S.cal.signingIn = true; render(); S.cal.t = setTimeout(() => { S.cal.signingIn = false; S.cal.signedIn = true; K.calendar.signedIn = K.calendar.signedIn || "you@example.com"; render(); }, 1500); };
+ACT["cal-cancel"] = () => { clearTimeout(S.cal.t); S.cal.signingIn = false; render(); };
+ACT["cal-out"] = () => { S.cal.signedIn = false; closeCutin(); render(); };
+ACT["cutin-test"] = showCutin;
+ACT.web = () => {
+  if (K.settings.webResearch) { K.settings.webResearch = false; return render(); }
+  sheet(sheetHead("Web 調べものをオンにしますか？") + `<div class="vstack">
+    <div>送るたびに、送る内容をこの画面で確認してから送ります。</div>
+    <div class="card vstack" style="gap:4px"><div class="meta">送るもの</div><div>あなたが確認した検索語だけ（例: <span class="mono">SRT 字幕 話者名 書式</span>）</div>
+      <div class="meta" style="margin-top:6px">送らないもの</div><div>音声、文字起こしの全文、訳文、話者名、議事録</div></div>
+    <div class="hstack"><span class="grow"></span><button class="btn" data-act="close-sheet">キャンセル</button><button class="btn primary" data-act="web-ok">同意してオンにする</button></div></div>`);
+};
+ACT["web-ok"] = () => { K.settings.webResearch = true; closeSheet(); render(); };
+
+// ===== common: diarization evaluation (#11) =====
+ACT["eval-open"] = () => renderEval();
+function renderEval() {
+  const e = S.ev, E = K.evaluation, rec = recById(e.rec);
+  const res = !e.ran ? `<div class="meta">条件を決めて「評価する」を押します。</div>` : `<div class="card vstack" style="gap:6px">
+    ${e.mode === "der" ? `<div class="hstack"><b class="num">DER ${(E.result.der * 100).toFixed(1)}%</b><span class="meta num">見逃し ${(E.result.miss * 100).toFixed(1)}% · 誤検出 ${(E.result.fa * 100).toFixed(1)}% · 取り違え ${(E.result.confusion * 100).toFixed(1)}% · 採点 ${fmt(E.result.scored)}</span></div>`
+      : `<div class="hstack"><b>モデル間の不一致</b><span class="meta">${esc(modelName("pyannote"))} と ${esc(modelName("nemotron"))}（参照なし）</span></div>`}
+    <div class="meta">${e.mode === "der" ? "不一致の箇所" : "2つのモデルが食い違う箇所"}（クリックで再生）</div>
+    ${E.mismatches.map((m) => `<div class="row hstack" data-act="ev-play" data-at="${m.start}"><span class="num mono">${fmt(m.start)}–${fmt(m.end)}</span><span class="grow">${m.kind}</span><span class="meta">${e.mode === "der" ? `参照 ${m.ref} / 推定 ${m.hyp}` : `A ${m.ref} / B ${m.hyp}`}</span></div>`).join("")}
+    <div class="hstack"><span class="meta grow">入力ハッシュ: 音声 ${E.hashes.audio} · RTTM ${E.hashes.rttm}</span><button class="btn sm" data-act="ev-json">JSON で保存</button></div></div>`;
+  sheet(sheetHead("話者分離の評価") + `<div class="vstack">
+    <div class="set-row"><span>録音</span><select class="input" data-chg="ev-rec">${K.recordings.map((r) => `<option value="${r.id}" ${r.id === e.rec ? "selected" : ""}>${esc(r.title)}</option>`).join("")}</select></div>
+    <div class="set-row"><span>比べ方</span><span class="seg"><button class="${e.mode === "der" ? "sel" : ""}" data-act="ev-mode" data-m="der">人手参照の DER</button><button class="${e.mode !== "der" ? "sel" : ""}" data-act="ev-mode" data-m="dis">モデル間の不一致</button></span></div>
+    ${e.mode === "der" ? `<div class="set-row"><span>参照 RTTM</span><select class="input" data-chg="ev-ref"><option>weekly.rttm</option><option>（ファイルを選ぶ…）</option></select></div>` : ""}
+    <div class="set-row"><span>範囲（秒）</span><span class="hstack"><input class="input num" style="width:70px" value="${e.from}" data-chg="ev-from"> – <input class="input num" style="width:70px" value="${e.to}" data-chg="ev-to"></span></div>
+    <div class="set-row"><span>カラー（ms）</span><input class="input num" style="width:80px" value="${e.collar}" data-chg="ev-collar"></div>
+    <div class="set-row"><span>重なった発話</span><select class="input" data-chg="ev-ov"><option value="include" ${e.overlap === "include" ? "selected" : ""}>採点に含める</option><option value="exclude" ${e.overlap === "exclude" ? "selected" : ""}>除外する</option></select></div>
+    <div class="hstack"><span class="grow meta">${rec ? esc(rec.title) : ""}</span><button class="btn primary" data-act="ev-run">評価する</button></div>${res}</div>`);
+}
+CHG["ev-rec"] = (el) => { S.ev.rec = el.value; S.ev.ran = false; renderEval(); };
+CHG["ev-ref"] = (el) => { S.ev.ref = el.value; };
+CHG["ev-from"] = (el) => { S.ev.from = +el.value || 0; };
+CHG["ev-to"] = (el) => { S.ev.to = +el.value || 0; };
+CHG["ev-collar"] = (el) => { S.ev.collar = +el.value || 0; };
+CHG["ev-ov"] = (el) => { S.ev.overlap = el.value; };
+ACT["ev-mode"] = (el) => { S.ev.mode = el.dataset.m; S.ev.ran = false; renderEval(); };
+ACT["ev-run"] = () => { S.ev.ran = true; renderEval(); };
+ACT["ev-play"] = (el) => { closeSheet(); jumpTo(S.ev.rec, null, +el.dataset.at, true); };
+ACT["ev-json"] = () => {
+  const E = K.evaluation, e = S.ev;
+  const json = JSON.stringify({ recording: e.rec, reference: e.mode === "der" ? e.ref : null, mode: e.mode === "der" ? "der" : "disagreement", range: [e.from * 1000, e.to * 1000], collarMs: e.collar, overlap: e.overlap, result: E.result, mismatches: E.mismatches, inputs: E.hashes }, null, 2);
+  sheet(sheetHead("評価結果を保存") + `<pre class="out">${esc(json)}</pre><div class="hstack" style="margin-top:8px"><span class="grow"></span><button class="btn" data-act="ev-back">戻る</button><button class="btn primary" data-act="ev-save">保存</button></div>`);
+};
+ACT["ev-back"] = renderEval;
+ACT["ev-save"] = () => { closeSheet(); toast(`eval-${S.ev.rec}.json を保存しました`); };
+// ===== common: search (#13) =====
+let searchQ = "";
+const mark = (text, q) => { const i = text.toLowerCase().indexOf(q.toLowerCase()); return i < 0 || !q ? esc(text) : esc(text.slice(0, i)) + `<span class="hl">${esc(text.slice(i, i + q.length))}</span>` + esc(text.slice(i + q.length)); };
+function renderSearch(main) {
+  main.innerHTML = `<div class="fill" style="display:flex;min-height:0">
+    <div class="grow scroll pad"><div class="center vstack">
+      <input class="input" id="sq" placeholder="録音とフォルダを検索（例: SRT, 担当, 20261117）" value="${esc(searchQ)}" data-inp="sq">
+      <div id="sres"></div></div></div>
+    <div class="pad bt" style="width:260px;border-top:0;border-left:1px solid var(--border)"><h3>検索するフォルダ</h3>
+      <div class="meta" style="margin:4px 0 8px">Markdown / テキストを検索に含めます</div>
+      ${K.folders.map((f, i) => `<div class="hstack"><span class="grow mono">${esc(f.path)}</span><button class="btn sm ghost danger" data-act="fold-del" data-i="${i}">削除</button></div>`).join("") || `<div class="meta">なし</div>`}
+      <div class="hstack" style="margin-top:8px"><input class="input grow" id="fold-new" placeholder="~/path"><button class="btn sm" data-act="fold-add">追加</button></div></div></div>`;
+  renderResults(); const i = $("#sq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length);
+}
+function renderResults() {
+  const res = K.search(searchQ), box = $("#sres"); if (!box) return;
+  if (!searchQ.trim()) { box.innerHTML = `<div class="meta">録音（原文・訳文・タイトル・日付）と、追加したフォルダを検索します。</div>`; return; }
+  const recs = res.filter((r) => r.type !== "file"), files = res.filter((r) => r.type === "file");
+  box.innerHTML = (res.length ? "" : `<div class="meta">見つかりませんでした。</div>`)
+    + (recs.length ? `<h3 style="margin:8px 0 4px">録音</h3>` + recs.map((r) => `<div class="row" data-act="s-jump" data-rec="${r.rec}" data-utt="${r.utt || ""}">
+      <div class="meta">${esc(r.title)} · ${r.date}${r.at != null ? ` · ${fmt(r.at)} · ${r.field}` : ""}</div><div>${mark(r.excerpt, searchQ)}</div></div>`).join("") : "")
+    + (files.length ? `<h3 style="margin:8px 0 4px">フォルダ</h3>` + files.map((r) => `<div class="row" data-act="s-file" data-path="${esc(r.path)}" data-line="${r.line}">
+      <div class="meta mono">${esc(r.path)}:${r.line}</div><div>${mark(r.excerpt, searchQ)}</div></div>`).join("") : "");
+}
+INP.sq = (el) => { searchQ = el.value; renderResults(); };
+ACT["s-jump"] = (el) => jumpTo(el.dataset.rec, el.dataset.utt || null);
+ACT["s-file"] = (el) => {
+  const path = el.dataset.path, f = K.folders.find((x) => path.startsWith(x.path)), file = f.files.find((x) => path.endsWith("/" + x.name));
+  sheet(sheetHead(esc(file.name)) + `<div class="meta mono">${esc(path)}</div><pre class="out">${file.lines.map((l, i) => (i + 1 === +el.dataset.line ? "▸ " : "  ") + esc(l)).join("\n")}</pre>`);
+};
+ACT["fold-del"] = (el) => { const [f] = K.folders.splice(+el.dataset.i, 1); S.removedFolders[f.path] = f; K.settings.searchFolders = K.folders.map((x) => x.path); render(); };
+ACT["fold-add"] = () => { const p = $("#fold-new").value.trim(); if (!p) return; if (K.folders.some((f) => f.path === p)) return toast("追加済みです"); K.folders.push(S.removedFolders[p] || { path: p, files: [] }); K.settings.searchFolders.push(p); render(); };
+
+// ===== common: recordings list + import (#4 #10) =====
+const SRC = { meeting: "会議", face: "対面", import: "取り込み" };
+function participants(r) { return Object.keys(r.speakers).map((k) => K.speakerName(r, k)).join("、"); }
+ACT["open-rec"] = (el) => { S.recId = el.dataset.id; render(); };
+ACT.back = () => { if (S.player) S.player.pause(); S.recId = null; render(); };
+let joinStandup = true;
+const QSTATE = { done: ["ok", "完了"], running: ["info", "取り込み中"], pending: ["", "待機"], failed: ["warn", "失敗"], skipped: ["", "スキップ"] };
+function renderImport() {
+  const box = $("#imp"); if (!box) return;
+  box.innerHTML = sheetHead("音声の取り込み") + `<div class="vstack">
+    <div class="drop"><div>WAV / M4A / MP3 をここにドロップ</div><div class="meta" style="margin:4px 0 8px">複数ファイルはキューに入り、順に文字起こしします</div><button class="btn sm" data-act="imp-add">ファイルを選ぶ…</button></div>
+    <label class="check"><input type="checkbox" data-chg="imp-join" ${joinStandup ? "checked" : ""}><span>WAV の分割ファイル（standup-part1 / part2）を 1 つの会議に結合する</span></label>
+    <table class="q">${K.importQueue.map((q) => { const [cls, lbl] = QSTATE[q.state]; return `<tr><td class="mono">${esc(q.file)}${q.joinGroup && joinStandup ? ` <span class="chip">結合</span>` : ""}</td><td class="meta">${q.size}</td>
+      <td style="width:150px">${q.state === "running" ? `<div class="bar"><i style="width:${Math.round(q.progress * 100)}%"></i></div>` : `<span class="chip ${cls}">${lbl}</span>`}</td>
+      <td class="meta" style="width:180px">${q.state === "running" ? Math.round(q.progress * 100) + "%" : q.state === "failed" ? esc(q.error) : q.state === "skipped" ? esc(q.note) : ""}</td>
+      <td style="width:70px">${q.state === "failed" ? `<button class="btn sm" data-act="imp-retry" data-id="${q.id}">再試行</button>` : ""}</td></tr>`; }).join("")}</table></div>`;
+}
+ACT["import-open"] = () => { sheet("", "imp"); renderImport(); };
+ACT["imp-add"] = () => { K.importQueue.push({ id: "q" + Date.now(), file: "meeting-" + (K.importQueue.length + 1) + ".m4a", size: "21 MB", durMs: 900_000, state: "pending", progress: 0 }); renderImport(); };
+ACT["imp-retry"] = (el) => { const q = K.importQueue.find((x) => x.id === el.dataset.id); if (!q) return renderImport(); Object.assign(q, { state: "pending", progress: 0, error: null, retried: true }); renderImport(); };
+CHG["imp-join"] = (el) => { joinStandup = el.checked; renderImport(); };
+setInterval(() => { // one job at a time
+  const Q = K.importQueue; let run = Q.find((q) => q.state === "running");
+  if (!run) { run = Q.find((q) => q.state === "pending"); if (!run) return; run.state = "running"; }
+  run.progress = Math.min(1, run.progress + 0.06);
+  if (run.progress >= 1) {
+    run.state = run.retried || run.file !== "broken.m4a" ? "done" : "failed";
+    if (run.state === "done") importFinished(run);
+  }
+  renderImport();
+}, 200);
+function importFinished(q) {
+  const group = q.joinGroup && joinStandup ? Q_group(q.joinGroup) : null;
+  if (group && group.some((x) => x.state !== "done")) return;
+  const title = group ? `${q.joinGroup}（${group.length} ファイルを結合）` : q.file.replace(/\.\w+$/, "");
+  K.recordings.push({ id: "i" + Date.now(), title, date: nowStr(), durationMs: group ? group.reduce((n, x) => n + x.durMs, 0) : q.durMs, source: "import", importedFrom: q.file,
+    lanes: ["Imported"], speakers: {}, utterances: [], minutes: null, stats: null, advisor: [], diarized: false, status: "recorded", note: null });
+  toast(`取り込みました: ${title}`); if (S.tab === "recordings" && !S.recId) renderList($("#main"));
+}
+const Q_group = (g) => K.importQueue.filter((x) => x.joinGroup === g);
+
+// ===== common: recording detail helpers (#4 #8 #9 #12 #14 #15) =====
+function identify(rec) {
+  S.identifying[rec.id] = true; render();
+  setTimeout(() => {
+    if (!Object.keys(rec.speakers).length) rec.speakers = { S1: { name: "", auto: "SPEAKER_00" }, S2: { name: "", auto: "SPEAKER_01" } };
+    rec.utterances.forEach((u, i) => { if (!u.spk) u.spk = u.lane === "Me" ? "S1" : u.lane === "Them" ? "S2" : (i % 2 ? "S2" : "S1"); });
+    rec.diarized = true; if (rec.status === "transcribed") rec.status = "diarized"; delete S.identifying[rec.id]; markDirty(rec); render(); toast("話者を判別しました");
+  }, 2200);
+}
+const identifyHTML = (rec) => S.identifying[rec.id] ? `<span class="meta">話者を判別しています…（初回はモデルをダウンロードします）</span>`
+  : `<button class="btn sm" data-act="identify">話者を判別</button>`;
+ACT.identify = () => identify(recById(S.recId));
+function markDirty(rec) { S.dirty[rec.id] = true; const d = $("#dirty"); if (d) d.innerHTML = dirtyHTML(rec); }
+const dirtyHTML = (rec) => S.dirty[rec.id] ? `<span class="chip warn">未保存</span><button class="btn sm primary" data-act="save">保存</button>` : `<span class="meta">保存済み</span>`;
+ACT.save = () => { const r = recById(S.recId); S.dirty[r.id] = false; if (r.note) r.note.state = "stale"; render(); const d = $("#dirty"); if (d) d.innerHTML = dirtyHTML(r); toast("話者名と校閲を保存しました"); };
+function nextUnreviewed(rec, afterId, filter = () => true) {
+  const us = rec.utterances.filter(filter), i = us.findIndex((u) => u.id === afterId);
+  return us.slice(i + 1).find((u) => !u.reviewed) || us.find((u) => !u.reviewed) || null;
+}
+function setSpeaker(rec, uttId, val) {
+  const u = rec.utterances.find((x) => x.id === uttId);
+  if (val === "__new") { const k = "S" + (Object.keys(rec.speakers).length + 1); rec.speakers[k] = { name: "", auto: "SPEAKER_0" + (Object.keys(rec.speakers).length) }; val = k; }
+  u.spk = val || null; markDirty(rec);
+}
+function speakerSelect(rec, u) {
+  return `<select class="input" style="min-height:22px;padding:0 4px;font-size:12px" data-chg="reassign" data-u="${u.id}">
+    ${Object.keys(rec.speakers).map((k) => `<option value="${k}" ${u.spk === k ? "selected" : ""}>${esc(K.speakerName(rec, k))}</option>`).join("")}
+    <option value="" ${!u.spk ? "selected" : ""}>未割り当て</option><option value="__new">新しい話者…</option></select>`;
+}
+CHG.reassign = (el) => { setSpeaker(recById(S.recId), el.dataset.u, el.value); render(); };
+function exportMenu(anchor, rec) {
+  menu(anchor, [["Markdown（話者名つき）", () => exportSheet(rec, "md")], ["SRT（話者名つき）", () => exportSheet(rec, "srt")], ["words.srt（単語の時刻は推定）", () => exportSheet(rec, "words")]]);
+}
+ACT.export = (el) => exportMenu(el, recById(S.recId));
+function exportSheet(rec, kind, text) {
+  const name = { md: ".md", srt: ".srt", words: ".words.srt" }[kind];
+  sheet(sheetHead("書き出し: " + rec.title + name) + `<div class="vstack">
+    ${kind === "words" ? `<div class="meta">単語の時刻は推定です（区切りの位置から割り振っています）</div>` : ""}
+    ${S.dirty[rec.id] ? `<div class="notice">未保存の変更があります。保存した話者名で書き出します。</div>` : ""}
+    <pre class="out">${esc(text || K.exportText(rec, kind))}</pre>
+    <div class="hstack"><span class="grow"></span><button class="btn primary" data-act="exp-save" data-n="${esc(rec.title + name)}">保存</button></div></div>`);
+}
+ACT["exp-save"] = (el) => { closeSheet(); toast(el.dataset.n + " を保存しました"); };
+const ev = (ids) => ids.map((id) => { const f = K.findUtt(id); return f ? `<span class="cite" data-act="cite" data-rec="${f.rec.id}" data-utt="${id}">${fmt(f.utt.start)}</span>` : ""; }).join(" ");
+ACT.cite = (el) => { closeSheet(); jumpTo(el.dataset.rec, el.dataset.utt); };
+function minutesHTML(rec) {
+  const m = rec.minutes;
+  if (!m) return `<div class="vstack"><div class="meta">議事録はまだありません。</div><div><button class="btn" data-act="min-gen">議事録を作る</button></div></div>`;
+  const sec = (t, items, f = (x) => esc(x.text)) => `<h3 style="margin-top:10px">${t}</h3>${items.length ? items.map((x) => `<div style="padding:2px 0">${f(x)} ${ev(x.ev)}</div>`).join("") : `<div class="meta">なし</div>`}`;
+  return `<div><div class="hstack"><span class="meta grow">版 ${m.revision} · ${m.generated} · ${esc(m.model)}</span><button class="btn sm" data-act="min-gen">作り直す</button></div>
+    ${sec("要約", m.summary)}${sec("決定事項", m.decisions)}${sec("宿題", m.actions, (x) => `${esc(x.text)} <span class="meta">${esc(x.who)} · ${esc(x.due)}</span>`)}${sec("未決事項", m.open)}</div>`;
+}
+ACT["min-gen"] = () => {
+  const r = recById(S.recId);
+  if (r.minutes) { r.minutes.revision++; r.minutes.generated = nowStr(); }
+  else if (!r.utterances.length) return toast("文字起こしがないため作れません");
+  else makeMinutes(r);
+  afterMinutes(r); render();
+};
+function statsHTML(rec) {
+  const st = rec.stats; if (!st) return `<div class="meta">この録音には会話の統計がありません。</div>`;
+  const lanes = Object.keys(st).filter((k) => k !== "headphones");
+  return `<div class="vstack">${lanes.map((l) => `<div><div class="hstack"><b style="color:${laneColor(l)}">${l}</b><span class="meta num">発話の割合 ${Math.round(st[l].share * 100)}%</span></div>
+    <div class="bar"><i style="width:${st[l].share * 100}%;background:${laneColor(l)}"></i></div>
+    <div class="meta num">最長の連続発話 ${(st[l].longestMs / 1000).toFixed(1)} 秒 · ${st[l].cpm} 文字/分 · 質問 ${st[l].questions} · 重なり ${st[l].overlaps}</div></div>`).join("")}
+    <div class="meta">重なった発話はヘッドホン使用時だけ数えます（スピーカーだと相手の声が混ざるため）。${st.headphones ? "この録音はヘッドホン使用。" : "この録音はヘッドホンなし。"}</div></div>`;
+}
+let qaLog = [];
+function qaHTML(rec) {
+  const log = qaLog.filter((x) => x.rec === rec.id);
+  return `<div class="vstack"><div class="hstack"><input class="input grow" id="qa-in" placeholder="この会議について質問（例: 取り込みの担当は？）"><button class="btn primary" data-act="qa-ask">質問</button></div>
+    <div class="hstack">${["SRT はどうなった？", "ブロッカーは？", "予算は？"].map((q) => `<button class="btn sm ghost" data-act="qa-ex">${q}</button>`).join("")}</div>
+    ${log.map((x) => `<div class="card vstack" style="gap:4px"><div class="meta">${esc(x.q)}</div><div>${x.a.confirmed ? "" : `<span class="chip warn">確定できません</span> `}${esc(x.a.answer)}</div>
+      ${x.a.cites.map((c) => `<div class="meta">「${esc(c.quote)}」 <span class="cite" data-act="cite" data-rec="${rec.id}" data-utt="${c.id}">${fmt(c.at)}</span></div>`).join("")}
+      ${!x.a.confirmed && K.settings.webResearch ? `<div><button class="btn sm" data-act="web-ask" data-q="${esc(x.q)}">Web で調べる…</button></div>` : ""}</div>`).reverse().join("")}</div>`;
+}
+function doAsk(q) { if (!q.trim()) return; qaLog.push({ rec: S.recId, q, a: K.ask(S.recId, q) }); render(); }
+ACT["qa-ask"] = () => doAsk($("#qa-in").value);
+ACT["qa-ex"] = (el) => doAsk(el.textContent);
+ACT["web-ask"] = (el) => sheet(sheetHead("Web に送る内容の確認") + `<div class="vstack"><div class="meta">送るのはこの検索語だけです。音声・文字起こしは送りません。</div>
+  <input class="input" value="${esc(el.dataset.q)}"><div class="hstack"><span class="grow"></span><button class="btn" data-act="close-sheet">送らない</button><button class="btn primary" data-act="web-send">送信</button></div></div>`);
+ACT["web-send"] = () => { closeSheet(); toast("Web の結果を受け取りました（録音の根拠ではありません）"); };
+
+// ----- cues (subtitle blocks) as runs of word refs -----
+function cuesOf(rec) {
+  if (!S.cues[rec.id]) S.cues[rec.id] = rec.utterances.map((u) => K.unitsWithTimes(u).map((w, i) => ({ u: u.id, i, w: w.w, start: w.start, end: w.end })));
+  return S.cues[rec.id];
+}
+function splitCue(rec, ci, k) { const c = cuesOf(rec); if (k <= 0 || k >= c[ci].length) return; c.splice(ci, 1, c[ci].slice(0, k), c[ci].slice(k)); markDirty(rec); }
+function mergeCue(rec, ci) { const c = cuesOf(rec); if (ci < 0 || ci >= c.length - 1) return; c.splice(ci, 2, c[ci].concat(c[ci + 1])); markDirty(rec); }
+const cueText = (c) => c.map((w) => w.w).join("").trim();
+const srtT = (ms) => new Date(ms).toISOString().slice(11, 23).replace(".", ",");
+function cuesSRT(rec) {
+  return cuesOf(rec).map((c, i) => { const u = rec.utterances.find((x) => x.id === c[0].u), n = K.speakerName(rec, u.spk);
+    return `${i + 1}\n${srtT(c[0].start)} --> ${srtT(c[c.length - 1].end)}\n${n ? "[" + n + "] " : ""}${cueText(c)}`; }).join("\n\n");
+}
+
+// ----- player -----
+function ensurePlayer(rec) {
+  if (S.playerRec !== rec.id) { if (S.player) S.player.pause(); S.player = K.player(rec, tick); S.playerRec = rec.id; }
+  return S.player;
+}
+function tick(pos, playing) {
+  const t = $("#pb-t"), b = $("#pb-bar"), p = $("#pb-play"), rec = recById(S.playerRec);
+  if (t) t.textContent = `${fmt(pos)} / ${fmt(rec.durationMs)}`;
+  if (b) b.style.width = (pos / rec.durationMs * 100) + "%";
+  if (p) p.textContent = playing ? "一時停止" : "▶ 再生";
+  VARIANT.onTick && VARIANT.onTick(pos, playing);
+}
+function playerBarHTML(rec, extra = "") {
+  const p = ensurePlayer(rec);
+  return `<div class="playerbar"><button class="btn sm" id="pb-play" data-act="pb-toggle">${p.playing ? "一時停止" : "▶ 再生"}</button>
+    <span class="num meta" id="pb-t">${fmt(p.pos)} / ${fmt(rec.durationMs)}</span><div class="bar" data-act="pb-seek"><i id="pb-bar" style="width:${p.pos / rec.durationMs * 100}%"></i></div>${extra}</div>`;
+}
+ACT["pb-toggle"] = () => S.player.toggle();
+ACT["pb-seek"] = (el, e) => { const r = el.getBoundingClientRect(), rec = recById(S.playerRec); S.player.seek((e.clientX - r.left) / r.width * rec.durationMs); };
+function playAt(ms) { S.player.seek(ms); S.player.play(); }
+ACT["play-at"] = (el) => playAt(+el.dataset.at);
+
+function jumpTo(recId, uttId, ms, play) {
+  closeSheet(); S.tab = "recordings"; S.recId = recId; render();
+  const rec = recById(recId), u = uttId ? rec.utterances.find((x) => x.id === uttId) : null;
+  const at = ms != null ? ms : u ? u.start : 0;
+  ensurePlayer(rec); S.player.seek(at); if (play) S.player.play();
+  VARIANT.focus(rec, u ? u.id : (rec.utterances.find((x) => x.end > at) || {}).id, at);
+}
+function flash(node) { if (!node) return; node.scrollIntoView({ block: "center" }); node.classList.remove("flash"); void node.offsetWidth; node.classList.add("flash"); }
+// ===== common: offline post-processing pipeline + Obsidian =====
+const STEPS = ["recorded", "transcribed", "diarized", "minutes", "exported"];
+const NEXT_LABEL = { recorded: "文字起こし", transcribed: "話者を判別", diarized: "議事録を作る", minutes: "Obsidian に書き出す" };
+const pendingRecs = () => K.recordings.filter((r) => r.status !== "exported");
+const staleRecs = () => K.recordings.filter((r) => r.note && r.note.state === "stale");
+S.proc = {};
+function makeMinutes(r) {
+  r.minutes = { summary: [{ text: r.utterances[0].text, ev: [r.utterances[0].id] }], decisions: [], actions: [], open: [], revision: 1, generated: nowStr(), model: modelName(K.settings.mt) };
+}
+function afterMinutes(r) {
+  if (STEPS.indexOf(r.status) < 3) r.status = "minutes";
+  if (r.note) r.note.state = "stale";
+  if (K.settings.obsidian.autoExport === "minutes") writeNote(r, true);
+}
+const notePath = (r) => K.settings.obsidian.folder + "/" + K.settings.obsidian.fileName.replace("{date}", r.date.slice(0, 10)).replace("{title}", r.title);
+function writeNote(r, auto) {
+  r.note = { path: notePath(r), state: "fresh" };
+  if (r.status === "minutes") r.status = "exported";
+  if (auto) toast("議事録ができたので Obsidian に書き出しました");
+}
+function stepOnce(r) {
+  if (r.status === "recorded") {
+    if (!r.utterances.length) r.utterances = [
+      { id: r.id + "a", lane: r.lanes[0], spk: null, start: 1000, end: 5000, text: "では始めます。", units: ["では", "始めます。"], tr: "Let's begin.", reviewed: false },
+      { id: r.id + "b", lane: r.lanes[r.lanes.length - 1], spk: null, start: 5500, end: 9000, text: "よろしくお願いします。", units: ["よろしく", "お願いします。"], tr: "Nice to meet you.", reviewed: false }];
+    r.status = "transcribed";
+  } else if (r.status === "transcribed") {
+    if (!Object.keys(r.speakers).length) r.speakers = { S1: { name: "自分", auto: "SPEAKER_00" }, S2: { name: "", auto: "SPEAKER_01" } };
+    r.utterances.forEach((u, i) => { if (!u.spk) u.spk = i % 2 ? "S2" : "S1"; });
+    r.diarized = true; r.status = "diarized";
+  } else if (r.status === "diarized") { if (!r.minutes) makeMinutes(r); afterMinutes(r); }
+  else if (r.status === "minutes") writeNote(r);
+}
+// Run one step (all=false) or to the end, showing which step is running.
+function runPipeline(r, all) {
+  if (S.proc[r.id] || r.status === "exported") return;
+  const go = () => {
+    S.proc[r.id] = NEXT_LABEL[r.status] + "中…"; render();
+    setTimeout(() => { stepOnce(r); delete S.proc[r.id]; if (all && r.status !== "exported") go(); else render(); }, 800);
+  };
+  go();
+}
+function runAll() { pendingRecs().forEach((r) => runPipeline(r, true)); }
+ACT["proc-next"] = (el) => runPipeline(recById(el.dataset.id || S.recId), false);
+ACT["proc-all"] = (el) => runPipeline(recById(el.dataset.id || S.recId), true);
+ACT["proc-every"] = runAll;
+function statusChip(r) {
+  if (S.proc[r.id]) return `<span class="chip info">${S.proc[r.id]}</span>`;
+  const cls = r.status === "exported" ? "ok" : r.status === "recorded" ? "warn" : "";
+  return `<span class="chip ${cls}">${K.STATUS[r.status]}</span>` + (r.note && r.note.state === "stale" ? `<span class="chip warn">ノートが古い</span>` : "");
+}
+// Compact pipeline strip for detail headers: where it stopped + one click to finish.
+function pipelineHTML(r) {
+  const at = STEPS.indexOf(r.status);
+  const steps = STEPS.map((s, i) => `<span class="${i <= at ? "" : "meta"}" style="${i === at ? "font-weight:600" : ""}">${K.STATUS[s]}</span>`).join(`<span class="meta">›</span>`);
+  const act = S.proc[r.id] ? `<span class="chip info">${S.proc[r.id]}</span>`
+    : r.status !== "exported" ? `<button class="btn sm" data-act="proc-next">${NEXT_LABEL[r.status]}</button>${at < 3 ? `<button class="btn sm primary" data-act="proc-all">最後まで処理</button>` : ""}` : "";
+  const note = r.note ? `<span class="meta mono" title="${esc(r.note.path)}">${r.note.state === "stale" ? `<span class="warn">ノートが古い</span>` : "ノートは最新"}</span><button class="btn sm" data-act="ob-open">${r.note.state === "stale" ? "Obsidian を更新" : "Obsidian に書き出す"}</button>`
+    : r.status !== "minutes" ? `<button class="btn sm ghost" data-act="ob-open">Obsidian に書き出す</button>` : "";
+  return `<div class="hstack" style="font-size:12px;gap:6px">${steps}<span class="grow"></span>${act}${note}</div>`;
+}
+ACT["ob-open"] = (el) => {
+  const r = recById(el.dataset.id || S.recId), ob = K.settings.obsidian;
+  sheet(sheetHead("Obsidian に書き出す") + `<div class="vstack"><div class="meta mono">${esc(ob.vault)}/${esc(notePath(r))}${r.note && r.note.state === "stale" ? " · 上書きします" : ""}</div>
+    <pre class="out">${esc(K.exportText(r, "obsidian"))}</pre>
+    <div class="hstack"><span class="grow"></span><button class="btn primary" data-act="ob-write" data-id="${r.id}">書き出す</button></div></div>`);
+};
+ACT["ob-write"] = (el) => { writeNote(recById(el.dataset.id)); closeSheet(); render(); toast("Obsidian に書き出しました"); };
+ACT["ob-stale-all"] = () => { staleRecs().forEach((r) => writeNote(r)); render(); toast("古いノートを更新しました"); };
+function obsidianSettingsHTML() {
+  const ob = K.settings.obsidian, n = staleRecs().length;
+  return `<div class="set-sec"><h3>Obsidian</h3>
+    <div class="set-row"><span>保管庫 / フォルダ</span><span class="mono">${esc(ob.vault)}/${esc(ob.folder)}</span></div>
+    <div class="set-row"><span>ファイル名</span><input class="input mono" value="${esc(ob.fileName)}" data-chg="ob-fn" style="width:200px"></div>
+    <div class="set-row"><span>自動で書き出す</span><select class="input" data-chg="ob-auto"><option value="minutes" ${ob.autoExport === "minutes" ? "selected" : ""}>議事録ができたら</option><option value="off" ${ob.autoExport !== "minutes" ? "selected" : ""}>しない（録音ごとに手動）</option></select></div>
+    <div class="set-row"><span>文字起こしを含める</span>${tog(ob.includeTranscript, "ob-tr")}</div>
+    <div class="set-row"><span>訳文を含める</span>${tog(ob.includeTranslation, "ob-tl")}</div>
+    <div class="set-row"><span class="meta">frontmatter: ${ob.frontmatter.join(", ")}</span>${n ? `<button class="btn sm" data-act="ob-stale-all">古いノート ${n} 件を更新</button>` : `<span class="meta">古いノートはありません</span>`}</div></div>`;
+}
+CHG["ob-fn"] = (el) => { K.settings.obsidian.fileName = el.value; };
+CHG["ob-auto"] = (el) => { K.settings.obsidian.autoExport = el.value; };
+ACT["ob-tr"] = () => { K.settings.obsidian.includeTranscript = !K.settings.obsidian.includeTranscript; render(); };
+ACT["ob-tl"] = () => { K.settings.obsidian.includeTranslation = !K.settings.obsidian.includeTranslation; render(); };
+
+// ===== common: recordings list (~90 items: date groups + status filter) =====
+S.listFilter = "all";
+const WD = "日月火水木金土";
+const dayLabel = (d) => { const x = new Date(d.slice(0, 10) + "T00:00:00"); return `${x.getMonth() + 1}月${x.getDate()}日（${WD[x.getDay()]}）`; };
+const FILTERS = [["all", "すべて"], ["pending", "後処理待ち"], ["stale", "ノートが古い"]];
+function listFiltered() {
+  const f = S.listFilter;
+  return K.recordings.filter((r) => f === "all" || (f === "pending" ? r.status !== "exported" : f === "stale" ? r.note && r.note.state === "stale" : r.status === f))
+    .slice().sort((a, b) => b.date.localeCompare(a.date));
+}
+function listRowsHTML(rows, rowFn) {
+  let day = "", out = "";
+  rows.forEach((r) => { const d = r.date.slice(0, 10); if (d !== day) { day = d; out += `<div class="meta" style="padding:10px 8px 2px;font-weight:600">${dayLabel(r.date)}</div>`; } out += rowFn(r); });
+  return out || `<div class="meta pad">該当する録音はありません。</div>`;
+}
+function defaultRow(r) {
+  return `<div class="row hstack" data-act="open-rec" data-id="${r.id}"><span class="meta num" style="width:40px">${r.date.slice(11)}</span>
+    <div class="grow"><div>${esc(r.title)}</div><div class="meta">${fmt(r.durationMs)} · ${SRC[r.source] || r.source}${participants(r) ? " · " + esc(participants(r)) : ""}</div></div>
+    ${VARIANT.rowExtra ? VARIANT.rowExtra(r) : ""}${statusChip(r)}${r.status !== "exported" && !S.proc[r.id] ? `<button class="btn sm" data-act="proc-all" data-id="${r.id}">${r.status === "minutes" ? "書き出す" : "処理"}</button>` : ""}</div>`;
+}
+function listToolbarHTML() {
+  const p = pendingRecs().length;
+  return `<div class="hstack"><span class="seg">${FILTERS.map(([k, l]) => `<button class="${S.listFilter === k ? "sel" : ""}" data-act="lf" data-f="${k}">${l}${k === "pending" ? ` ${p}` : k === "stale" ? ` ${staleRecs().length}` : ""}</button>`).join("")}</span>
+    <select class="input" data-chg="lf-status"><option value="">状態で絞る</option>${STEPS.map((s) => `<option value="${s}" ${S.listFilter === s ? "selected" : ""}>${K.STATUS[s]}</option>`).join("")}</select>
+    <span class="grow"></span>${p ? `<button class="btn sm" data-act="proc-every">後処理待ちをすべて処理</button>` : ""}</div>`;
+}
+ACT.lf = (el) => { S.listFilter = el.dataset.f; render(); };
+CHG["lf-status"] = (el) => { S.listFilter = el.value || "all"; render(); };
+function renderList(main) {
+  main.innerHTML = `<div class="pad vstack bb"><div class="hstack"><h2 class="grow">録音 <span class="meta">${K.recordings.length} 件</span></h2><button class="btn" data-act="import-open">音声を取り込む…</button></div>${listToolbarHTML()}</div>
+    <div class="scroll fill pad" style="padding-top:0"><div class="center">${listRowsHTML(listFiltered(), VARIANT.listRow || defaultRow)}</div></div>`;
+}
+// ===== 24 word-reader: read along while listening; the playing word advances in black =====
+const V = { rec: null, mode: "read", follow: true, showTr: true, side: "min", sideOpen: true, curU: null, sheet: null };
+// cue index of every word, so split points can be drawn inside the running text
+function cueIndex(rec) {
+  const map = {}; cuesOf(rec).forEach((c, ci) => c.forEach((w, k) => (map[w.u + ":" + w.i] = [ci, k]))); return map;
+}
+function paraHTML(rec, u, ci) {
+  const edit = V.mode === "edit";
+  const words = K.unitsWithTimes(u).map((w, i) => {
+    const [c, k] = ci[u.id + ":" + i] || [0, 0];
+    const cut = edit && i > 0 && k === 0 ? `<span class="cue-cut" data-act="cut-merge" data-ci="${c - 1}" title="区切りを外す" style="cursor:pointer"></span>` : "";
+    return cut + `<span class="w" data-act="${edit ? "cut-split" : "w-seek"}" data-ci="${c}" data-k="${k}" data-s="${w.start}" data-e="${w.end}">${esc(w.w)}</span>`;
+  }).join("");
+  const name = K.speakerName(rec, u.spk) || u.lane, color = u.spk ? K.speakerColor(u.spk) : laneColor(u.lane);
+  const gut = edit
+    ? `<span class="ts num" data-act="play-at" data-at="${u.start}">${fmt(u.start)}</span>${speakerSelect(rec, u)}<label class="check meta" style="justify-content:flex-end"><input type="checkbox" data-chg="rev" data-u="${u.id}" ${u.reviewed ? "checked" : ""}>校閲済み</label>`
+    : `<span class="ts num" data-act="play-at" data-at="${u.start}">${fmt(u.start)}</span><span class="spk" style="color:${color}">${esc(name)}</span>`;
+  return `<div class="para ${edit && u.reviewed ? "done" : ""}" id="u-${u.id}"><div class="gut">${gut}</div>
+    <div class="grow"><p class="words">${words}</p>${V.showTr && u.tr ? `<p class="tr">${esc(u.tr)}</p>` : ""}</div></div>`;
+}
+function sideHTML(rec) {
+  return `<div class="hstack" style="padding:8px 12px;border-bottom:1px solid var(--border)"><span class="seg">${[["min", "議事録"], ["qa", "質問"]].map(([k, l]) => `<button class="${V.side === k ? "sel" : ""}" data-act="side" data-k="${k}">${l}</button>`).join("")}</span>
+    <span class="grow"></span><button class="btn sm ghost" data-act="side-close">閉じる</button></div>
+    <div class="scroll fill pad">${V.side === "min" ? minutesHTML(rec) : qaHTML(rec)}</div>`;
+}
+function sheetBody(rec) {
+  if (V.sheet === "names") return sheetHead("話者名") + `<div class="vstack">${Object.keys(rec.speakers).map((s) => `<div class="hstack"><span class="spk" style="width:100px;color:${K.speakerColor(s)}">${esc(rec.speakers[s].auto)}</span><input class="input grow" value="${esc(rec.speakers[s].name)}" placeholder="名前" data-chg="spk-name" data-k="${s}"></div>`).join("") || `<div class="meta">話者がまだ分かれていません。</div>`}
+    <div class="hstack"><span class="grow"></span>${identifyHTML(rec)}</div></div>`;
+  return sheetHead("会話の統計") + statsHTML(rec);
+}
+var VARIANT = {
+  detail(main, rec) {
+    if (V.rec !== rec.id) Object.assign(V, { rec: rec.id, curU: null });
+    const p = ensurePlayer(rec), edit = V.mode === "edit", ci = cueIndex(rec), rd = $("#reader"), keep = rd ? rd.scrollTop : 0;
+    main.innerHTML = `<div class="d-head"><div class="hstack"><button class="btn sm ghost" data-act="back">← 録音一覧</button>
+        <h2>${esc(rec.title)}</h2><span class="meta">${rec.date} · ${fmt(rec.durationMs)}</span><span class="grow"></span>
+        <span class="seg"><button class="${!edit ? "sel" : ""}" data-act="mode" data-m="read">読む</button><button class="${edit ? "sel" : ""}" data-act="mode" data-m="edit">直す</button></span>
+        ${edit ? `<span id="dirty" class="hstack">${dirtyHTML(rec)}</span>` : ""}
+        <button class="btn sm" data-act="meeting-menu">この会議</button><button class="btn sm" data-act="export">書き出し</button></div>
+        ${edit ? `<div class="hstack"><span class="meta grow">単語を押すとその前で字幕を区切り、赤い線を押すと区切りを外します</span><button class="btn sm" data-act="next-unrev">次の未校閲へ</button><button class="btn sm ghost" data-act="v-sheet" data-k="names">話者名…</button>${identifyHTML(rec)}</div>` : ""}
+        ${pipelineHTML(rec)}</div>
+      <div class="rd-body"><div class="reader ${edit ? "edit" : ""}" id="reader"><div class="page">
+        ${rec.utterances.length ? rec.utterances.map((u) => paraHTML(rec, u, ci)).join("") : `<div class="meta">まだ文字起こしされていません。</div>`}</div></div>
+        ${V.sideOpen ? `<aside class="side24">${sideHTML(rec)}</aside>` : ""}</div>
+      <div class="transport"><button class="btn sm" data-act="para-step" data-d="-1">前の発話</button>
+        <button class="btn primary" id="pb-play" data-act="pb-toggle">${p.playing ? "一時停止" : "▶ 再生"}</button>
+        <button class="btn sm" data-act="para-step" data-d="1">次の発話</button>
+        <button class="btn sm ghost" data-act="nudge" data-d="-5000">−5 秒</button><button class="btn sm ghost" data-act="nudge" data-d="5000">+5 秒</button>
+        <span class="num meta" id="pb-t">${fmt(p.pos)} / ${fmt(rec.durationMs)}</span><div class="bar" data-act="pb-seek"><i id="pb-bar" style="width:${p.pos / rec.durationMs * 100}%"></i></div>
+        <span class="meta">追従</span>${tog(V.follow, "follow")}<span class="meta">訳文</span>${tog(V.showTr, "show-tr")}
+        ${!V.sideOpen ? `<button class="btn sm ghost" data-act="side-open">議事録を横に</button>` : ""}</div>`;
+    const rd2 = $("#reader"); if (rd2) rd2.scrollTop = keep;
+    VARIANT.onTick(p.pos, false);
+    const sh = $("#v-sheet"); if (sh && V.sheet) sh.innerHTML = sheetBody(rec);
+  },
+  rowExtra(r) { return r.utterances.length ? `<button class="btn sm ghost" data-act="listen" data-id="${r.id}">▶ 聞く</button>` : ""; },
+  focus(rec, uttId) { V.sheet = null; render(); const n = $("#u-" + uttId); if (n) flash(n); },
+  onTick(pos, playing) {
+    let cur = null;
+    $$("#reader .w[data-s]").forEach((w) => { const on = +w.dataset.s <= pos && pos < +w.dataset.e; w.classList.toggle("now", on); if (on) cur = w; });
+    if (cur && playing && V.follow) {
+      const para = cur.closest(".para"), rd = $("#reader");
+      const r = cur.getBoundingClientRect(), b = rd.getBoundingClientRect();
+      if (para.id !== V.curU || r.top < b.top + 40 || r.bottom > b.bottom - 60) { V.curU = para.id; cur.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    }
+  },
+};
+ACT.listen = (el) => { S.recId = el.dataset.id; render(); S.player.play(); };
+ACT.mode = (el) => { V.mode = el.dataset.m; render(); };
+ACT["w-seek"] = (el) => playAt(+el.dataset.s);
+ACT["cut-split"] = (el) => { const r = recById(S.recId); if (+el.dataset.k === 0) return toast("ここはすでに区切りです"); splitCue(r, +el.dataset.ci, +el.dataset.k); render(); };
+ACT["cut-merge"] = (el) => { mergeCue(recById(S.recId), +el.dataset.ci); render(); };
+ACT.follow = () => { V.follow = !V.follow; render(); };
+ACT["show-tr"] = () => { V.showTr = !V.showTr; render(); };
+ACT.side = (el) => { V.side = el.dataset.k; render(); };
+ACT["side-close"] = () => { V.sideOpen = false; render(); };
+ACT["side-open"] = () => { V.sideOpen = true; render(); };
+ACT.nudge = (el) => S.player.seek(S.player.pos + +el.dataset.d);
+ACT["para-step"] = (el) => {
+  const r = recById(S.recId), pos = S.player.pos, us = r.utterances; if (!us.length) return;
+  const i = us.findIndex((u) => u.end > pos), cur = i < 0 ? us.length - 1 : i;
+  const t = us[Math.max(0, Math.min(us.length - 1, +el.dataset.d > 0 ? (us[cur].start > pos ? cur : cur + 1) : (pos - us[cur].start > 1500 ? cur : cur - 1)))];
+  S.player.seek(t.start); flash($("#u-" + t.id));
+};
+CHG.rev = (el) => { const r = recById(S.recId); r.utterances.find((x) => x.id === el.dataset.u).reviewed = el.checked; markDirty(r); render(); };
+CHG["spk-name"] = (el) => { const r = recById(S.recId); r.speakers[el.dataset.k].name = el.value.trim(); markDirty(r); render(); };
+ACT["next-unrev"] = () => {
+  const r = recById(S.recId), n = nextUnreviewed(r, V.lastUnrev || null);
+  if (!n) return toast("未校閲の発話はありません");
+  V.lastUnrev = n.id; S.player.seek(n.start); flash($("#u-" + n.id));
+};
+ACT["v-sheet"] = (el) => { V.sheet = el.dataset.k; sheet("", "v-sheet").innerHTML = sheetBody(recById(S.recId)); };
+ACT["meeting-menu"] = (el) => menu(el, [
+  ["議事録を横に表示", () => { V.sideOpen = true; V.side = "min"; render(); }],
+  ["質問を横に表示", () => { V.sideOpen = true; V.side = "qa"; render(); }],
+  ["会話の統計…", () => { V.sheet = "stats"; sheet("", "v-sheet").innerHTML = sheetBody(recById(S.recId)); }],
+  ["words.srt（推定の単語時刻）…", () => exportSheet(recById(S.recId), "words")],
+  ["区切りで SRT…", () => { const r = recById(S.recId); exportSheet(r, "srt", cuesSRT(r)); }],
+]);
+
+// Opens on the latest meeting, ready to press play and read along.
+S.tab = "recordings"; S.recId = "r1";
+setTimeout(() => { if (S.cal.signedIn) showCutin(); }, 1500);
+render();
+</script>
+</body>
+</html>

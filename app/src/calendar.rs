@@ -300,6 +300,11 @@ impl Calendar {
     }
 
     /// The card is gone; its meetings do not come back.
+    pub fn next_meeting(&self, now: DateTime<Utc>) -> Option<Meeting> {
+        let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
+        next(&all, now).cloned()
+    }
+
     pub fn dismiss(&mut self, keys: impl IntoIterator<Item = String>, cx: &mut Context<Self>) {
         self.dismissed.extend(keys);
         self.card = None;
@@ -442,6 +447,14 @@ fn known_link(text: &str) -> Option<String> {
     })
 }
 
+/// The meeting the status bar points at: the earliest one that has not ended.
+pub fn next(meetings: &[Meeting], now: DateTime<Utc>) -> Option<&Meeting> {
+    meetings
+        .iter()
+        .filter(|m| m.end > now)
+        .min_by_key(|m| m.start)
+}
+
 /// Meetings whose card should be showing: from `LEAD` before the start until
 /// `GRACE` after it, or the end if that comes first.
 pub fn due(meetings: &[Meeting], now: DateTime<Utc>, dismissed: &HashSet<String>) -> Vec<Meeting> {
@@ -459,6 +472,29 @@ pub fn due(meetings: &[Meeting], now: DateTime<Utc>, dismissed: &HashSet<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_next_meeting_is_the_earliest_that_has_not_ended() {
+        use chrono::TimeZone;
+        let at = |h: u32| Utc.with_ymd_and_hms(2026, 11, 17, h, 0, 0).unwrap();
+        let m = |key: &str, start: u32, end: u32| Meeting {
+            key: key.into(),
+            title: None,
+            start: at(start),
+            end: at(end),
+            join_url: None,
+        };
+        let meetings = [m("later", 14, 15), m("ongoing", 9, 11), m("over", 7, 8)];
+        assert_eq!(
+            next(&meetings, at(10)).map(|m| m.key.as_str()),
+            Some("ongoing")
+        );
+        assert_eq!(
+            next(&meetings, at(12)).map(|m| m.key.as_str()),
+            Some("later")
+        );
+        assert_eq!(next(&meetings, at(16)), None);
+    }
 
     fn events(items: &str) -> String {
         format!(r#"{{"items":[{items}]}}"#)

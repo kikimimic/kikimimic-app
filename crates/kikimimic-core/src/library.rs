@@ -20,7 +20,7 @@ struct Metadata {
 }
 
 /// One recorded session, as the library list needs it.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Recording {
     /// Directory name — `20260819090503`, or `…-2` for a restart within the
@@ -167,6 +167,23 @@ fn duration_ms(path: &Path) -> Option<u64> {
     (rate > 0).then(|| reader.duration() as u64 * 1_000 / rate)
 }
 
+/// Exact audio clock for validation and evaluation, separate from display ms.
+pub fn audio_duration_seconds(dir: &Path) -> anyhow::Result<f64> {
+    let duration = |path: &Path| {
+        let reader = hound::WavReader::open(path).ok()?;
+        let rate = reader.spec().sample_rate;
+        (rate > 0).then(|| f64::from(reader.duration()) / f64::from(rate))
+    };
+    duration(&dir.join("mix.wav"))
+        .or_else(|| {
+            LANES
+                .iter()
+                .filter_map(|lane| duration(&dir.join(format!("{lane}.wav"))))
+                .reduce(f64::max)
+        })
+        .ok_or_else(|| anyhow::anyhow!("recording has no readable audio clock"))
+}
+
 /// The first utterance and how many there are. Translation lines are skipped:
 /// the snippet should read as what was said, not as what we made of it.
 fn read_transcript(path: &Path) -> (String, usize) {
@@ -192,7 +209,7 @@ fn read_transcript(path: &Path) -> (String, usize) {
 
 /// One utterance of a finished session, with whatever translation caught up
 /// to it before the session ended.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub id: u64,
@@ -211,7 +228,7 @@ pub struct Line {
 }
 
 /// A finished session, read back for the transcript view.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub name: String,
@@ -230,6 +247,16 @@ pub struct Session {
 /// utterance now, its translation seconds later, the other lane in between —
 /// so reading it means joining on the id, not trusting the order.
 pub fn read(dir: &Path) -> anyhow::Result<Session> {
+    let mut session = read_raw(dir)?;
+    let file = crate::annotations::AnnotationFile::load(dir)?;
+    let source = crate::annotations::source_fingerprint(dir, &session.lines)?;
+    file.annotations.apply(&mut session.lines, &source);
+    Ok(session)
+}
+
+/// Automatic transcript, without manual names or assignments. Editors must
+/// anchor changes to this evidence, never to already corrected display text.
+pub fn read_raw(dir: &Path) -> anyhow::Result<Session> {
     let recording =
         read_session(dir).ok_or_else(|| anyhow::anyhow!("{} is not a recording", dir.display()))?;
     // Speaker-split lines, once a diarization has produced them; until then

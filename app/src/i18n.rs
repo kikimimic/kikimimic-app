@@ -42,10 +42,7 @@ macro_rules! texts {
 }
 
 texts! {
-    tab_session: "Session", "セッション";
-    tab_recordings: "Recordings", "録音";
     tab_models: "Models", "モデル";
-    tab_settings: "Settings", "設定";
     stop: "■ Stop", "■ 停止";
     record_meeting: "● Record meeting", "● 会議を録音";
     face_to_face: "Face to face", "対面";
@@ -55,7 +52,6 @@ texts! {
     follow: "Follow", "切り替える";
     stay: "Stay", "そのまま";
     translating: "Translating…", "訳しています…";
-    all_recordings: "← All recordings", "← 録音一覧";
     identifying: "Identifying speakers… (the first run downloads the model)", "話者を判別しています…（初回はモデルをダウンロードします）";
     identify_speakers: "Identify speakers", "話者を判別";
     no_recordings: "No recordings yet.", "まだ録音はありません。";
@@ -77,6 +73,7 @@ texts! {
     misrecognized_as: "Misrecognized as…", "誤認識された表記";
     correct_spelling: "Correct spelling", "正しい表記";
     clear_transcript: "Clear", "クリア";
+    save_face_to_face: "Save face-to-face audio and transcript", "対面の音声と文字起こしを保存";
     clear_on_start: "Clear the screen when a recording starts (otherwise right-click to clear)", "録音開始時に画面をクリアする（オフのときは右クリックでクリア）";
     add: "Add", "追加";
     remove: "Remove", "削除";
@@ -93,6 +90,85 @@ texts! {
     record: "Record", "録音を開始";
     dismiss: "Dismiss", "閉じる";
     no_title: "(No title)", "（タイトルなし）";
+    search_meetings: "Search meetings and what was said", "会議と発言を検索";
+    filter_all: "All", "すべて";
+    filter_unfinished: "Unfinished", "未完了";
+    today: "Today", "今日";
+    yesterday: "Yesterday", "昨日";
+    undated: "Undated", "日付なし";
+    stage_transcribe: "Not transcribed", "未文字起こし";
+    stage_speakers: "No speakers", "話者未判別";
+    stage_minutes: "No minutes", "議事録なし";
+    stage_export: "Export pending", "書き出し待ち";
+    drop_audio: "Drop audio here to import", "音声をドロップして取り込む";
+    drop_audio_formats: "WAV / M4A / MP3 · several at once", "WAV / M4A / MP3 · 複数可";
+    import_details: "Details", "詳細";
+    settings_button: "Settings", "設定";
+    show_live: "Show live", "ライブを見る";
+    recording_meeting: "Recording a meeting", "会議を録音中";
+    recording_face: "Recording face to face", "対面で録音中";
+    face_saved: "Face to face: saved", "対面: 保存する";
+    face_not_saved: "Face to face: not saved", "対面: 保存しない";
+    captions_shown: "Captions: on", "字幕: 表示";
+    captions_hidden: "Captions: off", "字幕: 非表示";
+    processed_locally: "Processed on this Mac", "ローカル処理";
+    pick_a_recording: "Pick a meeting on the left, or start recording.", "左の一覧から会議を選ぶか、録音を始めてください。";
+    matches_in_speech: "In what was said", "発言・メモ";
+    no_matches: "No matches", "一致なし";
+    show_older: "Show older meetings", "以前の会議を表示";
+    section_general: "General", "一般";
+    section_link: "Connections", "連携";
+    section_advanced: "Advanced", "詳細";
+    section_recording: "Recording", "録音";
+    saved_automatically: "Changes are saved automatically", "変更は自動で保存";
+    destinations_help: "Write each meeting to a folder you choose, under a file name and in a format you choose. A note vault (Obsidian or any other) is just a folder.", "決めたフォルダに、決めたファイル名と形式で会議を書き出します。Obsidian などのノートの保管庫も、ただのフォルダとして扱います。";
+    dest_name: "Name", "名前";
+    dest_folder: "Folder", "フォルダ";
+    dest_file_name: "File name", "ファイル名";
+    dest_format: "Format", "形式";
+    dest_when: "Write", "書き出すとき";
+    dest_enabled: "Enabled", "使う";
+    dest_template: "Template", "テンプレート";
+    format_template: "Template (Markdown / text)", "テンプレート（Markdown / テキスト）";
+    when_manual: "Only when I ask", "手動のみ";
+    when_minutes: "When minutes are ready", "議事録ができたら";
+    when_recording: "When a recording or import ends", "録音・取り込みが終わったら";
+    template_inline: "Built-in template", "既定のテンプレート";
+    template_use_inline: "Use the built-in one", "既定に戻す";
+    template_variables: "Variables:", "変数:";
+    choose: "Choose…", "選ぶ…";
+    choose_file: "Use a file…", "ファイルを選ぶ…";
+    apply: "Apply", "適用";
+    on: "On", "オン";
+    off: "Off", "オフ";
+    step_transcript: "Transcript", "文字起こし";
+    step_speakers: "Speakers", "話者";
+    step_minutes: "Minutes", "議事録";
+    step_export: "Export", "書き出し";
+    write_pending: "Write to destinations", "書き出し先に書き出す";
+    minutes_not_made: "No minutes yet", "議事録はまだありません";
+    not_transcribed_yet: "Not transcribed yet", "まだ文字起こしされていません";
+    all_done: "Done", "完了";
+    play: "▶ Play", "▶ 再生";
+    pause: "■ Stop", "■ 停止";
+    click_a_word: "Click a word to play from it", "単語をクリックするとそこから再生";
+    tab_text: "Transcript", "本文";
+    tab_subtitles: "Subtitles", "字幕";
+    tab_stats: "Statistics", "統計";
+    minutes_summary: "Summary", "要約";
+    minutes_decisions: "Decisions", "決定事項";
+    minutes_actions: "Action items", "宿題";
+    minutes_open: "Open questions", "未決事項";
+    loading: "Loading…", "読み込み中…";
+    export_fresh: "Up to date", "最新";
+    export_stale: "Out of date", "古い";
+    export_not_written: "Not written", "未書き出し";
+    edit_destinations: "Edit destinations…", "書き出し先を編集…";
+    write: "Write", "書き出す";
+    rewrite: "Write again", "書き出し直す";
+    lane_me: "Me", "自分";
+    lane_them: "Them", "相手";
+    live_title: "Live", "ライブ";
 }
 
 impl Ui {
@@ -212,11 +288,64 @@ impl Ui {
             Self::Ja => format!("翻訳を使えません: {reason}"),
         }
     }
+}
 
-    pub fn recording_summary(self, duration: &str, lines: usize, snippet: &str) -> String {
+impl Ui {
+    pub fn speech_share(self, percent: f64) -> String {
         match self {
-            Self::En => format!("{duration} · {lines} lines · {snippet}"),
-            Self::Ja => format!("{duration} · {lines}行 · {snippet}"),
+            Self::En => format!("{percent:.0}% of speech"),
+            Self::Ja => format!("発話の割合 {percent:.0}%"),
+        }
+    }
+
+    pub fn lane_metrics(self, longest_s: f64, cpm: f64, questions: usize) -> String {
+        match self {
+            Self::En => {
+                format!("Longest {longest_s:.1} s · {cpm:.0} chars/min · {questions} questions")
+            }
+            Self::Ja => {
+                format!("最長の連続発話 {longest_s:.1} 秒 · {cpm:.0} 文字/分 · 質問 {questions}")
+            }
+        }
+    }
+
+    pub fn overlaps(self, n: usize) -> String {
+        match self {
+            Self::En => {
+                format!("{n} overlapping utterances (counted reliably only with headphones)")
+            }
+            Self::Ja => format!("重なった発話 {n}（ヘッドホン使用時だけ正しく数えられます）"),
+        }
+    }
+
+    pub fn day(self, month: u32, day: u32, weekday: u32) -> String {
+        const JA: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
+        const EN: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let w = weekday as usize % 7;
+        match self {
+            Self::En => format!("{} {month}/{day}", EN[w]),
+            Self::Ja => format!("{month}/{day}（{}）", JA[w]),
+        }
+    }
+
+    pub fn next_meeting(self, title: &str, at: &str) -> String {
+        match self {
+            Self::En => format!("Next: {title} at {at}"),
+            Self::Ja => format!("次: {title}  {at}"),
+        }
+    }
+
+    pub fn unfinished_count(self, n: usize) -> String {
+        match self {
+            Self::En => format!("{n} unfinished"),
+            Self::Ja => format!("後処理待ち {n}"),
+        }
+    }
+
+    pub fn importing(self, n: usize) -> String {
+        match self {
+            Self::En => format!("Importing {n}"),
+            Self::Ja => format!("取り込み {n}"),
         }
     }
 }

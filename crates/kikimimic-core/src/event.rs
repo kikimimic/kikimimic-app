@@ -6,6 +6,13 @@ use crate::domain::{LaneLabel, LaneRole, Lang, RecordingMs, UtteranceId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    /// Optional word timing of a finished recording, independent of diarization.
+    WordTiming {
+        recording: PathBuf,
+        state: PostProcessState,
+    },
+    /// Durable external-audio queue, separate from live session state.
+    Imports(crate::imports::ImportQueue),
     /// One lane's step. `utterance` is assigned when an utterance's first text
     /// appears, so later features (translating partials, live speaker labels)
     /// have an id to address.

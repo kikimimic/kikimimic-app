@@ -701,8 +701,13 @@ impl TextInput {
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
-        self.content = SharedString::default();
-        self.selected_range = 0..0;
+        self.set_text("", cx);
+    }
+
+    pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        self.selected_range = self.content.len()..self.content.len();
+        self.selection_reversed = false;
         self.marked_range = None;
         cx.notify();
     }

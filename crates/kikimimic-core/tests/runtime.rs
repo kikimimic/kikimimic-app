@@ -72,7 +72,29 @@ impl CaptureBackend for Tone {
 static KEYWORDS: std::sync::Mutex<Vec<Vec<Keyword>>> = std::sync::Mutex::new(Vec::new());
 
 struct Listening(ScriptedAsr);
+type WordGate = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+static WORD_GATE: std::sync::Mutex<Option<WordGate>> = std::sync::Mutex::new(None);
 impl AsrEngine for Listening {
+    fn word_timing(
+        &mut self,
+        audio: &[f32],
+        lang: Option<&str>,
+    ) -> anyhow::Result<Vec<kikimimic_core::word_timing::Word>> {
+        assert!(audio.len() >= 16_000);
+        assert_eq!(lang, Some("en"));
+        if let Some((entered, release)) = WORD_GATE.lock().unwrap().take() {
+            entered.send(()).unwrap();
+            release.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        Ok(vec![kikimimic_core::word_timing::Word {
+            text: " re-recognized".into(),
+            timing: Some(kikimimic_core::word_timing::TimeRange {
+                start_ms: 100,
+                end_ms: 400,
+            }),
+        }])
+    }
+
     fn cadence(&self) -> Duration {
         self.0.cadence()
     }
@@ -361,4 +383,84 @@ fn without_a_diarizer_labelling_is_refused_with_a_reason() {
         post_process_outcome(&events),
         PostProcessState::Failed { .. }
     ));
+}
+
+#[test]
+fn word_generation_uses_engine_and_excludes_live_and_other_postprocess() {
+    let (entered, receive_entered) = std::sync::mpsc::channel();
+    let (release, receive_release) = std::sync::mpsc::channel();
+    *WORD_GATE.lock().unwrap() = Some((entered, receive_release));
+    let label = "words";
+    let (kkm, events) = start_with(label, true, Some(Box::new(TwoSpeakers)));
+    let base =
+        std::env::temp_dir().join(format!("kikimimic-runtime-{label}-{}", std::process::id()));
+    let dir = base.join("recordings/20261117090000");
+    recording(&dir);
+    kkm.generate_word_timing(dir.clone());
+    receive_entered
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    kkm.start_session(SessionMode::FaceToFace);
+    kkm.diarize(dir.clone());
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let (mut live_refused, mut diarize_refused) = (false, false);
+    while Instant::now() < deadline && !(live_refused && diarize_refused) {
+        match events.recv_timeout(Duration::from_millis(100)) {
+            Some(Event::Status(status)) => {
+                assert_ne!(status.phase, Phase::Listening);
+                live_refused |= matches!(status.phase, Phase::Error { .. });
+            }
+            Some(Event::PostProcess {
+                state: PostProcessState::Failed { .. },
+                ..
+            }) => diarize_refused = true,
+            _ => {}
+        }
+    }
+    release.send(()).unwrap();
+    assert!(live_refused && diarize_refused);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(Instant::now() < deadline, "words never completed");
+        if let Some(Event::WordTiming { recording, state }) =
+            events.recv_timeout(Duration::from_millis(100))
+        {
+            assert_eq!(recording, dir);
+            if state != PostProcessState::Running {
+                assert_eq!(state, PostProcessState::Done);
+                break;
+            }
+        }
+    }
+    let data = kikimimic_core::word_timing::load(&dir).unwrap().unwrap();
+    assert_eq!(data.lines[0].words[0].seek_ms(), Some(100));
+    assert_eq!(
+        kikimimic_core::library::read(&dir).unwrap().lines[0].text,
+        "hello"
+    );
+    // Gate is released after completion: starting live is accepted again.
+    kkm.start_session(SessionMode::FaceToFace);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "live stayed blocked after words finished"
+        );
+        if let Some(Event::Status(status)) = events.recv_timeout(Duration::from_millis(100)) {
+            if status.phase == Phase::Listening {
+                break;
+            }
+        }
+    }
+    kkm.stop_session();
+}
+
+#[test]
+fn engines_without_word_timing_report_unsupported() {
+    let mut engine = ScriptedAsr::new();
+    let error = engine
+        .word_timing(&[0.0; 17_600], Some("ja"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unavailable") && error.contains("Whisper"));
 }

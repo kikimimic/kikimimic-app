@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>19 メニューバー主役 — Kikimimic</title>
+<meta name="kkm-concept" content="メニューバーのポップオーバーが主役。状態・録音・自動録音・次の予定・直近の会議をそこで完結し、ウィンドウは小さく後ろに置く">
+<meta name="kkm-why" content="常駐させる人が会議の直前と最中に使う。普段は画面に何も要らず「いま録れているか・次に何があるか」だけ知りたいので、メニューバーの1か所に状態と主操作を集めると、ウィンドウを探さずに録音の開始・停止ができる">
+<meta name="kkm-tradeoff" content="振り返り（校閲・議事録・統計・検索・取り込み・設定）はウィンドウを開く手間が増える。入口はポップオーバー下端の「ウィンドウ / 検索 / 取り込み / 設定」と直近の会議の行">
+<link rel="stylesheet" href="shared/kit.css">
+<style>
+/* ---- shared layout (core) ---- */
+.stack { display: flex; flex-direction: column; gap: 8px; }
+.hrow { display: flex; align-items: center; gap: 8px; }
+.hrow.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.sheet-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sheet-h h2 { flex: 1; }
+.sec { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.sec:last-child { border-bottom: 0; }
+.sec > h3 { margin-bottom: 8px; }
+.kv { display: grid; grid-template-columns: 190px 1fr; gap: 6px 12px; align-items: center; }
+.pre { white-space: pre-wrap; font: 12px/1.5 var(--mono); background: var(--bg-subtle); border-radius: var(--radius); padding: 8px; max-height: 280px; overflow: auto; margin: 0; }
+.utt.rv .txt { color: var(--muted-2); }
+.utt .txt { margin-top: 2px; }
+.gap { display: inline-block; width: 6px; height: 1em; cursor: col-resize; vertical-align: -2px; border-radius: 2px; }
+.gap:hover { background: var(--border-hover); }
+.lvl { width: 40px; display: inline-block; vertical-align: middle; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl td, .tbl th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.tbl th { font-weight: 600; font-size: 12px; color: var(--muted-2); }
+#notices { display: flex; flex-direction: column; gap: 6px; }
+#notices:empty { display: none; }
+.ans { border-left: 2px solid var(--border); padding-left: 10px; }
+
+/* ---- 19: the .win is the whole screen; the menubar popover is the app ---- */
+.menubar { flex: 0 0 auto; height: 26px; }
+.menubar .app { margin-right: auto; font-weight: 600; color: var(--muted-2); }
+.menubar .item { color: var(--muted-2); }
+.menubar .btn.sm { min-height: 20px; }
+.desk { position: relative; flex: 1; background: var(--bg-subtle); overflow: hidden; }
+.pop19 { position: absolute; top: 4px; right: 96px; width: 360px; max-height: calc(100% - 40px); overflow-y: auto; padding: 0; z-index: 30; }
+.pop19 .blk { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.pop19 .blk:last-child { border-bottom: 0; }
+.pop19 .blk > h3 { margin-bottom: 6px; color: var(--muted-2); font-size: 12px; }
+.pop19 #notices { padding: 8px 8px 0; }
+.pop19 .live { max-height: 150px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+.pop19 .live .utt { padding: 2px 0; }
+.big-time { font-size: 22px; font-weight: 600; }
+.appwin { position: absolute; left: 28px; top: 28px; width: 680px; height: calc(100% - 64px); max-height: 520px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; z-index: 10; }
+.appwin .titlebar .dot { cursor: pointer; }
+.appwin .tb { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.appwin .content { flex: 1; min-height: 0; }
+.appwin .pad { padding: 10px 14px; }
+</style>
+</head>
+<body>
+<div class="mock-nav"><a href="index.html">← 一覧</a> · 19 メニューバー主役</div>
+<div class="win">
+  <div class="menubar">
+    <span style="flex:1"></span>
+    <button class="btn sm ghost" id="mb-status"></button>
+    <span class="item num" id="mb-clock">11:28</span>
+  </div>
+  <div class="desk" id="desk">
+    <div class="appwin" id="appwin">
+      <div class="titlebar"><span class="dot" data-w="close" title="閉じる"></span><span class="dot"></span><span class="dot"></span><span class="t">Kikimimic</span></div>
+      <div class="tb" id="wtabs"></div>
+      <div class="content" id="wbody"></div>
+    </div>
+    <div class="menu pop19" id="pop">
+      <div id="notices"></div>
+      <div id="popbody"></div>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script>
+/* ===== core: utilities, overlays ===== */
+const K = window.KKM;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const recById = (id) => K.recordings.find((r) => r.id === id);
+const WIN = () => $(".win");
+const laneLabel = (l) => ({ Me: "Me（マイク）", Them: "Them（システム音声）", Imported: "取り込み" })[l] || l;
+const laneColor = (l) => (l === "Me" ? "var(--lane-me)" : l === "Them" ? "var(--lane-them)" : "var(--muted-2)");
+
+const S = {
+  phase: "idle", mode: null, eng: null, lines: [], startAt: 0, timer: 0, lastDuration: 0,
+  pendingAdvice: [], shownAdvice: [], advisorStopped: false, mutedRecs: new Set(),
+  dirty: new Set(), cues: {}, player: null, playerRec: null, pos: 0, playing: false,
+  auto: { state: K.settings.autoRecord ? "待機中" : "オフ", manualStopped: false, countdown: 0, timer: 0 },
+  signedIn: !!K.calendar.signedIn, capturing: "MacBook Pro のスピーカー",
+};
+const V = window.V || (window.V = {});
+const call = (name, ...a) => (typeof V[name] === "function" ? V[name](...a) : undefined);
+
+function toast(msg) {
+  $$(".toast").forEach((x) => x.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  WIN().appendChild(t); setTimeout(() => t.remove(), 2400);
+}
+function sheet(title, body, mount) {
+  const sc = document.createElement("div"); sc.className = "scrim";
+  sc.innerHTML = `<div class="sheet"><div class="sheet-h"><h2>${esc(title)}</h2><button class="btn sm" data-close>閉じる</button></div><div class="sheet-b">${body}</div></div>`;
+  const close = () => sc.remove();
+  sc.addEventListener("click", (e) => { if (e.target === sc || e.target.closest("[data-close]")) close(); });
+  WIN().appendChild(sc);
+  if (mount) mount($(".sheet-b", sc), close);
+  return { el: $(".sheet-b", sc), close };
+}
+function popMenu(anchor, items) {
+  $$(".menu.pop").forEach((m) => m.remove());
+  const m = document.createElement("div"); m.className = "menu pop";
+  items.forEach(([label, fn]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = (e) => { e.stopPropagation(); m.remove(); fn(); }; m.appendChild(b); });
+  const wr = WIN().getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  m.style.left = Math.max(4, Math.min(ar.left - wr.left, wr.width - 220)) + "px";
+  const below = ar.bottom - wr.top + 4, h = 10 + 30 * items.length;
+  m.style.top = (below + h > wr.height ? ar.top - wr.top - 4 - h : below) + "px";
+  WIN().appendChild(m);
+  setTimeout(() => document.addEventListener("click", function off() { m.remove(); document.removeEventListener("click", off); }), 0);
+}
+function notice(html, kind = "", ms = 0) {
+  const box = $("#notices"); if (!box) return null;
+  const n = document.createElement("div"); n.className = "notice " + kind; n.innerHTML = html;
+  box.appendChild(n); if (ms) setTimeout(() => n.remove(), ms);
+  return n;
+}
+function aboutButton() {
+  const b = document.createElement("button"); b.className = "btn sm ghost"; b.textContent = "この案について";
+  b.style.cssText = "position:absolute;right:8px;bottom:6px;z-index:40";
+  const m = (n) => esc($(`meta[name="${n}"]`).content);
+  b.onclick = () => sheet("この案について", `<div class="kv"><span class="meta">コンセプト</span><span>${m("kkm-concept")}</span><span class="meta">仮説と理由</span><span>${m("kkm-why")}</span><span class="meta">捨てるもの</span><span>${m("kkm-tradeoff")}</span></div>`);
+  WIN().appendChild(b);
+  return b;
+}
+
+/* ===== core: live session (#1 #2 #3 #16 #17) ===== */
+const elapsed = () => (S.phase === "rec" ? Date.now() - S.startAt : S.lastDuration);
+const faceSaves = () => K.settings.saveFaceToFace;
+function startSession(mode, opts = {}) {
+  if (S.phase !== "idle") return;
+  if (K.settings.clearOnStart) S.lines = [];
+  Object.assign(S, { phase: "rec", mode, startAt: Date.now(), pendingAdvice: [], shownAdvice: [], advisorStopped: false });
+  S.mutedRecs.delete("live");
+  const engMode = mode === "face" ? "face" : K.settings.translateInto ? "meeting" : "noTranslate";
+  S.eng = K.live(engMode, onLiveEvent);
+  S.timer = setInterval(() => call("onTick"), 500);
+  if (opts.auto) { S.auto.state = "録音中"; S.auto.manualStopped = false; }
+  call("onPhase"); call("onAuto");
+}
+function stopSession(manual = true) {
+  if (S.phase !== "rec") return;
+  S.eng.stop(); clearInterval(S.timer); clearInterval(S.auto.timer);
+  S.lastDuration = Date.now() - S.startAt; S.phase = "finishing";
+  if (S.auto.state === "録音中" || S.auto.state.startsWith("停止まで")) { S.auto.state = "待機中"; S.auto.manualStopped = manual; }
+  call("onPhase"); call("onAuto");
+  setTimeout(() => {
+    S.lines.forEach((l) => { if (!l.text) l.text = l.committed + l.volatile; l.translating = false; });
+    S.phase = "idle"; const mode = S.mode; S.mode = null;
+    if (mode === "face" && !faceSaves()) toast("対面モードは「保存しない」設定のため、録音を残しませんでした");
+    else if (S.lines.some((l) => l.text)) { const r = saveLiveAsRecording(mode); toast("「" + r.title + "」を録音一覧に追加しました"); }
+    call("onPhase"); call("onRecChange");
+  }, 1600);
+}
+function saveLiveAsRecording(mode) {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  const r = { id: "n" + Date.now(), title: mode === "face" ? "対面の会話" : "（タイトルなし）",
+    date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,
+    durationMs: Math.max(S.lastDuration, 5000), source: mode === "face" ? "face" : "meeting", lanes: mode === "face" ? ["Me"] : ["Me", "Them"], speakers: {},
+    utterances: S.lines.filter((l) => l.text).map((l, i, a) => {
+      const units = l.text.split(/(?<=\s)|(?<=[、。])/), end = a[i + 1] ? a[i + 1].at - 200 : l.at + 3000;
+      return { id: l.id, lane: l.lane, spk: null, start: l.at, end: Math.max(end, l.at + 800), text: l.text, units, tr: l.tr, reviewed: false };
+    }),
+    minutes: null, stats: null, advisor: [], diarized: false, status: "transcribed", note: null };
+  K.recordings.push(r); return r;
+}
+function onLiveEvent(ev) {
+  const L = (id) => S.lines.find((l) => l.id === id);
+  if (ev.type === "line") S.lines.push({ id: ev.id, lane: ev.lane, at: ev.at, committed: "", volatile: "", text: null, tr: null, translating: false });
+  else if (ev.type === "update") Object.assign(L(ev.id), { committed: ev.committed, volatile: ev.volatile });
+  else if (ev.type === "commit") Object.assign(L(ev.id), { text: ev.text, volatile: "" });
+  else if (ev.type === "translating") L(ev.id).translating = true;
+  else if (ev.type === "translate") Object.assign(L(ev.id), { tr: ev.text, translating: false });
+  else if (ev.type === "advisor") { if (!S.advisorStopped && !S.mutedRecs.has("live")) S.pendingAdvice.push(ev.card); }
+  else if (ev.type === "question") return askDevice(ev);
+  call("onLive", ev);
+}
+function liveLineHTML(l, opts = {}) {
+  const body = l.text ? esc(l.text) : esc(l.committed) + `<span class="vol">${esc(l.volatile)}</span>`;
+  const tr = l.tr ? `<div class="tr">${esc(l.tr)}</div>` : l.translating ? `<div class="meta">訳しています…</div>` : "";
+  const head = opts.noHead ? "" : `<div class="head"><span class="num">${K.mmss(l.at)}</span><span class="spk" style="color:${laneColor(l.lane)}">${esc(l.lane)}</span></div>`;
+  return `<div class="utt" data-live="${l.id}">${head}<div class="txt">${body}</div>${tr}</div>`;
+}
+function askDevice(ev) {
+  const n = notice(`<span class="grow">出力が ${esc(ev.detected)} に変わりました（いまは ${esc(ev.capturing)} を録音中）。切り替えますか？</span><button class="btn sm primary" data-a="sw">切り替える</button><button class="btn sm" data-a="keep">そのまま</button>`);
+  if (!n) return;
+  n.onclick = (e) => {
+    const a = e.target.dataset.a; if (!a) return; n.remove();
+    if (a === "sw") { S.capturing = ev.detected; notice(`${esc(ev.detected)} の録音に切り替えました。`, "", 4000); call("onDevice"); }
+  };
+}
+/* advisor (#16): manual only — cards wait until the user asks */
+function revealAdvice() {
+  if (S.advisorStopped) return toast("アドバイザーは停止中です");
+  if (!S.pendingAdvice.length) return toast("いま出せるアドバイスはありません");
+  S.shownAdvice.push(...S.pendingAdvice); S.pendingAdvice = []; call("onLive");
+}
+function adviceCardHTML(c, recId) {
+  const ev = (c.ev || []).map((id) => `<span class="cite" data-jump="${recId || "live"}:${id}">根拠</span>`).join(" ");
+  return `<div class="card stack" data-card="${c.id}" style="padding:8px 10px"><div class="hrow"><span class="chip warn">${esc(c.kind)}</span><span class="grow">${esc(c.text)}</span></div>
+    <div class="hrow">${ev}<span class="grow"></span><button class="btn sm ghost" data-adv="close">閉じる</button><button class="btn sm ghost" data-adv="mute">この会議では出さない</button><button class="btn sm ghost" data-adv="stop">停止</button></div></div>`;
+}
+function adviceAction(btn, list, recKey) {
+  const id = btn.closest("[data-card]").dataset.card, i = list.findIndex((c) => c.id === id);
+  if (btn.dataset.adv === "close" && i >= 0) list.splice(i, 1);
+  if (btn.dataset.adv === "mute") { list.splice(0); S.mutedRecs.add(recKey); toast("この会議ではアドバイスを出しません"); }
+  if (btn.dataset.adv === "stop") { list.splice(0); S.advisorStopped = true; toast("アドバイザーを停止しました"); }
+}
+function flashEl(el) { if (!el) return; $$(".flash").forEach((x) => x.classList.remove("flash")); el.scrollIntoView({ block: "center" }); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+/* global delegation: citations and advice buttons anywhere */
+document.addEventListener("click", (e) => {
+  const j = e.target.closest("[data-jump]");
+  if (j) {
+    const [rec, utt] = j.dataset.jump.split(":");
+    if (rec === "live") flashEl($(`[data-live="${utt}"]`)); else call("openUtt", rec, utt);
+    return;
+  }
+  const a = e.target.closest("[data-adv]");
+  if (a) {
+    if (a.closest("[data-advlive]")) { adviceAction(a, S.shownAdvice, "live"); call("onLive"); }
+    else { const recId = a.closest("[data-advrec]")?.dataset.advrec; if (recId) { adviceAction(a, recById(recId).advisor, recId); call("onRecChange"); } }
+  }
+});
+
+/* ---- calendar cut-in (#7) and auto-record (#18) ---- */
+function showCutin(evt) {
+  $$(".cutin").forEach((c) => c.remove());
+  const c = document.createElement("div"); c.className = "cutin stack";
+  let left = evt.inMin * 60;
+  const draw = () => {
+    c.innerHTML = `<div class="meta">Google カレンダー · ${left > 0 ? "あと " + K.mmss(left * 1000) : K.mmss(-left * 1000) + " 前に開始"}</div><h2>${esc(evt.title)}</h2>
+      <div class="hrow">${evt.url ? `<button class="btn primary" data-c="join">参加して録音</button>` : ""}<button class="btn" data-c="rec">録音を開始</button><span class="grow"></span><button class="btn" data-c="close">閉じる</button></div>`;
+  };
+  draw(); const t = setInterval(() => { left--; draw(); }, 1000);
+  c.onclick = (e) => {
+    const a = e.target.dataset.c; if (!a) return; clearInterval(t); c.remove();
+    if (a === "join") toast("会議の URL を開きました: " + evt.url);
+    if (a !== "close") startSession("meeting");
+  };
+  WIN().appendChild(c);
+}
+function setAutoRecord(on) {
+  K.settings.autoRecord = on; S.auto.manualStopped = false;
+  if (!on && S.auto.state === "録音中") stopSession(false);
+  S.auto.state = on ? "待機中" : "オフ"; call("onAuto");
+}
+/* demo hooks: a meeting begins / ends (in the app these come from the calendar + audio activity) */
+function autoMeetingBegins() {
+  if (!K.settings.autoRecord) return toast("自動録音はオフです");
+  if (S.auto.manualStopped) return toast("手動で停止したため、この会議では再開しません");
+  if (S.phase !== "idle") return toast("すでに録音中です");
+  startSession("meeting", { auto: true });
+}
+function autoMeetingEnds() {
+  if (S.auto.state !== "録音中") return toast("自動録音中ではありません");
+  S.auto.countdown = 60; S.auto.state = "停止まで 60 秒";
+  S.auto.timer = setInterval(() => {
+    S.auto.countdown -= 5; S.auto.state = "停止まで " + S.auto.countdown + " 秒";
+    if (S.auto.countdown <= 0) { clearInterval(S.auto.timer); stopSession(false); toast("会議が終わって 60 秒たったので自動停止しました"); }
+    call("onAuto");
+  }, 500);
+  call("onAuto");
+}
+function autoError() {
+  if (!K.settings.autoRecord) return toast("自動録音はオフです");
+  S.auto.state = "エラー"; call("onAuto");
+  notice(`<span class="grow">自動録音を開始できませんでした: システム音声が無音です。</span><button class="btn sm" data-x>閉じる</button>`, "error").onclick = (e) => {
+    if (e.target.dataset.x !== undefined) { e.currentTarget.remove(); S.auto.state = "待機中"; call("onAuto"); }
+  };
+}
+const autoChipClass = () => ({ "録音中": "rec", "エラー": "", "オフ": "" })[S.auto.state] ?? (S.auto.state.startsWith("停止まで") ? "warn" : "ok");
+function autoChip() {
+  const err = S.auto.state === "エラー" ? ' style="color:var(--danger)"' : "";
+  return `<span class="chip ${autoChipClass()}"${err}>自動録音: ${esc(S.auto.state)}</span>`;
+}
+
+/* ===== core: transcript, player, review, speakers, export (#4 #8 #9 #20) ===== */
+const spkName = (rec, spk) => K.speakerName(rec, spk);
+const isDirty = (rec) => S.dirty.has(rec.id);
+function markDirty(rec) { S.dirty.add(rec.id); call("onRecChange"); }
+function saveRec(rec) { S.dirty.delete(rec.id); if (rec.note) rec.note.state = "stale"; toast(rec.note ? "保存しました（Obsidian のノートは古くなりました）" : "保存しました"); call("onRecChange"); }
+function cuts(rec, u) { const k = rec.id + ":" + u.id; return S.cues[k] || (S.cues[k] = new Set()); }
+function cueCount(rec) { return rec.utterances.reduce((n, u) => n + 1 + cuts(rec, u).size, 0); }
+
+/* words with estimated times; cue cuts shown as a thin red bar; gaps clickable when editing cues */
+function wordsHTML(rec, u, opts = {}) {
+  const c = cuts(rec, u);
+  return K.unitsWithTimes(u).map((w, i) => {
+    const gap = i > 0 && opts.cueEdit ? `<span class="gap" data-gap="${i}" title="ここで字幕を分割 / 結合"></span>` : "";
+    const cut = i > 0 && c.has(i) ? `<span class="cue-cut"></span>` : "";
+    return gap + cut + `<span class="w" data-s="${w.start}" data-e="${w.end}">${esc(w.w)}</span>`;
+  }).join("");
+}
+function spkLabelHTML(rec, u) {
+  const n = spkName(rec, u.spk);
+  return `<span class="spk" data-spkmenu="${u.id}" style="color:${K.speakerColor(u.spk)};cursor:pointer">${esc(n || "話者なし")} ▾</span>`;
+}
+function uttHTML(rec, u, opts = {}) {
+  return `<div class="utt${u.reviewed ? " rv" : ""}" data-u="${u.id}">
+    <div class="head"><span class="ts num" data-ts="${u.start}">${K.mmss(u.start)}</span>${spkLabelHTML(rec, u)}<span>${esc(laneLabel(u.lane))}</span>
+      <span class="grow"></span><button class="btn sm ${u.reviewed ? "" : "ghost"}" data-rev="${u.id}">${u.reviewed ? "校閲済み" : "未校閲"}</button></div>
+    <div class="txt">${wordsHTML(rec, u, opts)}</div>${u.tr ? `<div class="tr">${esc(u.tr)}</div>` : ""}</div>`;
+}
+/* one delegated handler for any transcript container */
+function wireTranscript(el, getRec, rerender) {
+  el.addEventListener("click", (e) => {
+    const rec = getRec(); if (!rec) return;
+    const t = e.target;
+    if (t.dataset.ts) return playAt(rec, +t.dataset.ts);
+    if (t.classList.contains("w")) return playAt(rec, +t.dataset.s);
+    if (t.dataset.gap) { const u = rec.utterances.find((x) => x.id === t.closest("[data-u]").dataset.u), c = cuts(rec, u), i = +t.dataset.gap;
+      c.has(i) ? c.delete(i) : c.add(i); toast(c.has(i) ? "字幕を分割しました" : "字幕を結合しました"); markDirty(rec); return rerender(); }
+    if (t.dataset.rev) { const u = rec.utterances.find((x) => x.id === t.dataset.rev); u.reviewed = !u.reviewed; markDirty(rec); return rerender(); }
+    const sm = t.closest("[data-spkmenu]");
+    if (sm) { const u = rec.utterances.find((x) => x.id === sm.dataset.spkmenu); speakerMenu(sm, rec, u, rerender); }
+  });
+}
+function speakerMenu(anchor, rec, u, after) {
+  const items = Object.keys(rec.speakers).map((k) => [(k === u.spk ? "✓ " : "") + spkName(rec, k), () => { u.spk = k; markDirty(rec); after(); }]);
+  items.push(["新しい話者を追加", () => { const k = "S" + (Object.keys(rec.speakers).length + 1); rec.speakers[k] = { name: "", auto: "SPEAKER_0" + (Object.keys(rec.speakers).length) }; u.spk = k; markDirty(rec); after(); }]);
+  items.push(["話者名を編集…", () => openSpeakerNames(rec, after)]);
+  popMenu(anchor, items);
+}
+function openSpeakerNames(rec, after) {
+  const keys = Object.keys(rec.speakers);
+  const body = keys.length ? `<div class="kv">${keys.map((k) => `<span class="meta" style="color:${K.speakerColor(k)}">${esc(rec.speakers[k].auto)}</span><input class="input" data-k="${k}" value="${esc(rec.speakers[k].name)}" placeholder="名前">`).join("")}</div>
+    <div class="hrow" style="margin-top:12px"><span class="grow meta">名前は書き出し（Markdown / SRT）にも使われます</span><button class="btn primary" data-ok>名前を保存</button></div>`
+    : `<p class="muted">まだ話者がいません。先に「話者を判別」を実行してください。</p>`;
+  sheet("話者名 — " + rec.title, body, (el, close) => {
+    const ok = $("[data-ok]", el); if (!ok) return;
+    ok.onclick = () => { $$("[data-k]", el).forEach((i) => (rec.speakers[i.dataset.k].name = i.value.trim())); markDirty(rec); close(); after && after(); };
+  });
+}
+function nextUnreviewed(rec, fromId) {
+  const us = rec.utterances, i = us.findIndex((u) => u.id === fromId);
+  return us.slice(i + 1).concat(us.slice(0, i + 1)).find((u) => !u.reviewed) || null;
+}
+function diarize(rec, onProgress, onDone) {
+  let p = 0; const t = setInterval(() => {
+    p += 10; onProgress(p);
+    if (p >= 100) {
+      clearInterval(t);
+      if (!Object.keys(rec.speakers).length) rec.speakers = { S1: { name: "", auto: "SPEAKER_00" }, S2: { name: "", auto: "SPEAKER_01" } };
+      rec.utterances.forEach((u, i) => { if (!u.spk) u.spk = u.lane === "Me" ? "S1" : u.lane === "Them" ? "S2" : i % 2 ? "S2" : "S1"; });
+      rec.diarized = true; if (rec.status === "transcribed") rec.status = "diarized"; markDirty(rec); toast("話者を判別しました（" + modelName(K.settings.diar) + "）"); onDone();
+    }
+  }, 180);
+}
+const diarText = (p) => `話者を判別しています…（初回はモデルをダウンロードします） ${p}%`;
+
+/* player: one shared clock; highlights the word under the playhead inside [data-words-root] */
+function playAt(rec, ms) {
+  if (S.playerRec !== rec.id) { if (S.player) S.player.pause(); S.player = K.player(rec, onPlayerTick); S.playerRec = rec.id; }
+  S.player.seek(ms); S.player.play();
+}
+function togglePlay(rec) { if (S.playerRec !== rec.id) return playAt(rec, 0); S.player.toggle(); }
+function onPlayerTick(pos, playing) {
+  S.pos = pos; S.playing = playing;
+  $$(".w.now").forEach((w) => w.classList.remove("now"));
+  if (playing || pos > 0) {
+    const hit = $$("[data-words-root] .w").find((w) => +w.dataset.s <= pos && pos < +w.dataset.e);
+    if (hit) hit.classList.add("now");
+  }
+  call("onPlayer", pos, playing);
+}
+
+/* export (#8 #9) */
+function openExport(rec) {
+  let kind = "md";
+  sheet("書き出し — " + rec.title, `<div class="hrow"><div class="seg" data-kinds><button data-k="md" class="sel">Markdown</button><button data-k="srt">SRT</button><button data-k="words">words.srt</button></div><span class="grow"></span><span class="meta" data-note></span></div>
+    <pre class="pre" style="margin-top:8px" data-out></pre><div class="hrow" style="margin-top:12px"><span class="grow meta">話者名は保存済みの名前を使います</span><button class="btn primary" data-go>書き出す</button></div>`, (el, close) => {
+    const draw = () => {
+      $$("[data-k]", el).forEach((b) => b.classList.toggle("sel", b.dataset.k === kind));
+      $("[data-out]", el).textContent = K.exportText(rec, kind);
+      $("[data-note]", el).textContent = kind === "words" ? "単語の時刻は推定です" : kind === "srt" ? `字幕 ${rec.utterances.length} 件` : "";
+    };
+    $("[data-kinds]", el).onclick = (e) => { if (e.target.dataset.k) { kind = e.target.dataset.k; draw(); } };
+    $("[data-go]", el).onclick = () => { close(); toast(`${K.settings.recordDir}/${rec.id}.${kind === "words" ? "words.srt" : kind} に書き出しました`); };
+    draw();
+  });
+}
+
+/* ===== core: minutes, stats, Q&A, web research, search (#12 #13 #14 #15 #19) ===== */
+const citeHTML = (rec, ids) => ids.map((id) => { const f = K.findUtt(id); return `<span class="cite" data-jump="${rec.id}:${id}">${f ? K.mmss(f.utt.start) : id}</span>`; }).join(" ");
+function renderMinutes(el, rec) {
+  const m = rec.minutes;
+  if (!m) {
+    el.innerHTML = `<div class="stack" style="align-items:flex-start"><p class="muted" style="margin:0">議事録はまだありません。</p><button class="btn" data-gen>議事録を作る</button></div>`;
+    $("[data-gen]", el).onclick = () => { el.innerHTML = `<p class="meta">議事録を作っています…</p>`; setTimeout(() => { rec.minutes = fakeMinutes(rec); if (STEPS.indexOf(rec.status) < 3) rec.status = "minutes"; if (K.settings.obsidian.autoExport === "minutes") { writeNote(rec, true); toast("議事録ができたので Obsidian に書き出しました"); } renderMinutes(el, rec); call("onRecChange"); }, 900); };
+    return;
+  }
+  const sec = (title, items, fmt) => `<div class="sec"><h3>${title}</h3>${items.length ? items.map((it) => `<div class="hrow" style="align-items:baseline;padding:2px 0"><span class="grow">${fmt(it)}</span>${citeHTML(rec, it.ev)}</div>`).join("") : `<span class="meta">なし</span>`}</div>`;
+  el.innerHTML = `<div class="hrow"><span class="meta grow">版 ${m.revision} · ${esc(m.generated)} · ${esc(m.model)}</span><button class="btn sm" data-regen>作り直す</button></div>
+    ${sec("要約", m.summary, (x) => esc(x.text))}${sec("決定事項", m.decisions, (x) => esc(x.text))}
+    ${sec("宿題", m.actions, (x) => `${esc(x.text)} <span class="meta">${esc(x.who || "")}${x.due ? " · " + esc(x.due) : ""}</span>`)}${sec("未決事項", m.open, (x) => esc(x.text))}`;
+  $("[data-regen]", el).onclick = () => { m.revision++; m.generated = new Date().toTimeString().slice(0, 5); toast("版 " + m.revision + " を作りました（前の版は残ります）"); if (rec.note) { if (K.settings.obsidian.autoExport === "minutes") writeNote(rec, true); else rec.note.state = "stale"; } renderMinutes(el, rec); };
+}
+function fakeMinutes(rec) {
+  const u = rec.utterances;
+  return { summary: u.slice(0, 1).map((x) => ({ text: x.text, ev: [x.id] })), decisions: [], actions: [],
+    open: u.filter((x) => /[?？]/.test(x.text)).map((x) => ({ text: x.text, ev: [x.id] })), revision: 1,
+    generated: new Date().toTimeString().slice(0, 5), model: modelName(K.settings.mt) };
+}
+function computeStats(rec) {
+  const out = {}; const total = rec.utterances.reduce((n, u) => n + (u.end - u.start), 0) || 1;
+  rec.lanes.forEach((l) => {
+    const us = rec.utterances.filter((u) => u.lane === l), dur = us.reduce((n, u) => n + (u.end - u.start), 0);
+    out[l] = { share: dur / total, longestMs: Math.max(0, ...us.map((u) => u.end - u.start)), cpm: Math.round(us.reduce((n, u) => n + u.text.length, 0) / Math.max(dur / 60000, 0.01)),
+      questions: us.filter((u) => /[?？]/.test(u.text)).length, overlaps: 0 };
+  });
+  out.headphones = rec.source === "meeting"; return out;
+}
+function renderStats(el, rec) {
+  const st = rec.stats || computeStats(rec);
+  const lanes = rec.lanes.filter((l) => st[l]);
+  el.innerHTML = `<table class="tbl"><tr><th>レーン</th><th>発話の割合</th><th>最長の連続発話</th><th>文字数/分</th><th>質問</th><th>重なり</th></tr>
+    ${lanes.map((l) => `<tr><td><span class="spk" style="color:${laneColor(l)}">${esc(l)}</span></td><td><div class="hrow"><div class="bar grow"><i style="width:${Math.round(st[l].share * 100)}%;background:${laneColor(l)}"></i></div><span class="num">${Math.round(st[l].share * 100)}%</span></div></td>
+      <td class="num">${(st[l].longestMs / 1000).toFixed(1)} 秒</td><td class="num">${st[l].cpm}</td><td class="num">${st[l].questions}</td><td class="num">${st[l].overlaps}</td></tr>`).join("")}</table>
+    <p class="meta">${st.headphones ? "重なった発話はヘッドホン使用時のみ数えます（スピーカーだと相手の声がマイクに入るため）。" : "重なった発話: ヘッドホン必須のため、この録音では数えていません。"}${rec.stats ? "" : " この録音の統計はその場で計算しました。"}</p>`;
+}
+function renderAsk(el, rec) {
+  el.innerHTML = `<div class="hrow"><input class="input grow" data-q placeholder="この会議について質問（例: SRT はどう決まった？）"><button class="btn primary" data-ask>質問</button></div>
+    <div class="hrow wrap" style="margin-top:6px">${["SRT の形式は？", "取り込みの担当は？", "予算はいくら？"].map((q) => `<button class="btn sm ghost" data-ex>${q}</button>`).join("")}</div><div class="stack" data-ans style="margin-top:10px"></div>`;
+  const go = (q) => {
+    if (!q.trim()) return;
+    const a = K.ask(rec.id, q), box = $("[data-ans]", el);
+    const cites = a.cites.map((c) => `<div class="hrow" style="align-items:baseline"><span class="cite" data-jump="${rec.id}:${c.id}">${K.mmss(c.at)}</span><span class="muted">「${esc(c.quote)}」</span></div>`).join("");
+    box.insertAdjacentHTML("afterbegin", `<div class="ans stack" style="gap:4px"><span class="meta">Q. ${esc(q)}</span>${a.confirmed ? `<span>${esc(a.answer)}</span>${cites}` : `<span class="warn">確定できません — ${esc(a.answer)}</span><span><button class="btn sm" data-web="${esc(q)}">Web で調べる…</button></span>`}</div>`);
+  };
+  $("[data-ask]", el).onclick = () => go($("[data-q]", el).value);
+  $("[data-q]", el).onkeydown = (e) => { if (e.key === "Enter") go(e.target.value); e.stopPropagation(); };
+  el.addEventListener("click", (e) => { if (e.target.dataset.ex !== undefined) go(e.target.textContent); if (e.target.dataset.web) webResearch(e.target.dataset.web); });
+}
+/* Web research (#19): opt-in; every send shows exactly what leaves the Mac */
+function webResearch(q, after) {
+  const boundary = `<div class="kv" style="margin:8px 0"><span class="meta">外に送るもの</span><span class="mono">${q ? "「" + esc(q) + "」" : "毎回確認する検索語"}（検索語のみ）</span><span class="meta">送らないもの</span><span>音声・文字起こし・訳文・録音タイトル・話者名</span><span class="meta">送り先</span><span>Web 検索</span></div>`;
+  if (!K.settings.webResearch) {
+    return sheet("Web 調べもの（オフ）", `<p style="margin-top:0">Web 調べものは既定でオフです。有効にすると、確認した検索語だけを Web に送ります。</p>${boundary}<div class="hrow"><span class="grow"></span><button class="btn" data-close>キャンセル</button><button class="btn primary" data-ok>同意して有効にする</button></div>`, (el, close) => {
+      $("[data-ok]", el).onclick = () => { K.settings.webResearch = true; close(); call("onSettings"); if (after) after(); if (q) webResearch(q); };
+    });
+  }
+  sheet("Web で調べる", `${boundary}<div class="hrow"><span class="grow"></span><button class="btn" data-close>送らない</button><button class="btn primary" data-ok>この内容を送る</button></div><div data-res></div>`, (el) => {
+    $("[data-ok]", el).onclick = (e) => { e.target.disabled = true;
+      $("[data-res]", el).innerHTML = `<div class="sep"></div><span class="chip">Web からの情報 — 録音の根拠ではありません</span><p>（モック）「${esc(q)}」に関する公開情報の要約がここに出ます。</p>`; };
+  });
+}
+/* search (#13): recordings + explicitly added folders */
+function renderSearchResults(el, q) {
+  const res = K.search(q).filter((r) => r.type !== "file" || K.settings.searchFolders.some((f) => r.path.startsWith(f + "/")));
+  if (!q.trim()) { el.innerHTML = `<p class="meta">録音（原文・訳文・タイトル・日付）と、追加したフォルダ（${K.settings.searchFolders.map(esc).join("、") || "なし"}）を検索します。</p>`; return; }
+  if (!res.length) { el.innerHTML = `<p class="muted">「${esc(q)}」に一致するものはありません。</p>`; return; }
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+  const hl = (s) => esc(s).replace(re, (m) => `<b>${m}</b>`);
+  el.innerHTML = res.map((r) => r.type === "file"
+    ? `<div class="row" data-file="${esc(r.path)}:${r.line}"><div class="meta">${esc(r.path)}:${r.line} · フォルダ</div><div>${hl(r.excerpt)}</div></div>`
+    : `<div class="row" data-jump="${r.rec}:${r.utt || ""}"><div class="meta">${esc(r.title)} · ${esc(r.date)}${r.at != null ? " · " + K.mmss(r.at) + " · " + r.field : ""}</div><div class="${r.field === "訳文" ? "tr" : ""}">${hl(r.excerpt)}</div></div>`).join("");
+  $$("[data-file]", el).forEach((r) => (r.onclick = () => toast(r.dataset.file + " を開きます")));
+}
+function foldersHTML() {
+  return `<div class="stack" data-folders>${K.settings.searchFolders.map((f, i) => `<div class="hrow"><span class="mono grow">${esc(f)}</span><button class="btn sm danger" data-fdel="${i}">削除</button></div>`).join("") || `<span class="meta">フォルダはありません</span>`}
+    <div class="hrow"><input class="input grow" data-fnew placeholder="~/Documents/…"><button class="btn sm" data-fadd>フォルダを追加</button></div></div>`;
+}
+function wireFolders(el, rerender) {
+  if (el._folders) return; el._folders = true;
+  el.addEventListener("click", (e) => {
+    if (e.target.dataset.fdel) { K.settings.searchFolders.splice(+e.target.dataset.fdel, 1); rerender(); }
+    if (e.target.dataset.fadd !== undefined) { const v = $("[data-fnew]", el).value.trim() || "~/Desktop/meeting-notes"; K.settings.searchFolders.push(v); rerender(); }
+  });
+}
+
+/* ===== core: models (#5 #20), settings (#6 #7 #17 #18 #19), import (#10), evaluation (#11) ===== */
+const modelName = (id) => (K.models.find((m) => m.id === id) || { name: id }).name;
+const KIND = { asr: "文字起こしモデル", mt: "翻訳モデル", diar: "話者分離モデル" };
+/* render into a fresh root so timers stop drawing once the user navigates away */
+function freshRoot(el) { const r = document.createElement("div"); el.innerHTML = ""; el.appendChild(r); return r; }
+function renderModels(el) { drawModels(freshRoot(el)); }
+function drawModels(el) {
+  const btn = (m) => {
+    if (m.state === "downloading") return `<div class="hrow" style="width:160px"><div class="bar grow"><i style="width:${m.progress}%"></i></div><span class="meta num">ダウンロード中 ${m.progress}%</span></div>`;
+    if (m.state === "license") return `<button class="btn sm" data-lic="${m.id}">ライセンスを確認</button>`;
+    if (m.state === "none") return `<button class="btn sm" data-dl="${m.id}">ダウンロード</button>`;
+    if (m.inUse) return `<span class="chip ok">使用中</span>`;
+    return `<span class="meta">${m.state === "builtin" ? "macOS 標準" : "使用可能"}</span><button class="btn sm" data-use="${m.id}">使う</button>`;
+  };
+  el.innerHTML = Object.keys(KIND).map((k) => `<div class="sec"><h3>${KIND[k]}</h3>${K.models.filter((m) => m.kind === k).map((m) =>
+    `<div class="hrow" style="padding:4px 0"><div class="grow"><div>${esc(m.name)}${m.id === "nemotron" ? ' <span class="chip">暫定</span>' : ""}</div><div class="meta">${esc(m.size)} · ${esc(m.license)}</div></div>${btn(m)}</div>`).join("")}</div>`).join("");
+  el.onclick = (e) => {
+    const d = e.target.dataset;
+    if (d.lic) { const m = K.models.find((x) => x.id === d.lic);
+      sheet("ライセンス — " + m.name, `<pre class="pre">${esc(m.license)} License\n\nこのモデルを使うには ${esc(m.license)} ライセンスへの同意が必要です。\n（モック）ライセンス本文がここに表示されます。</pre><div class="hrow" style="margin-top:12px"><span class="grow"></span><button class="btn" data-close>キャンセル</button><button class="btn primary" data-ok>ライセンスに同意</button></div>`,
+        (s, close) => { $("[data-ok]", s).onclick = () => { m.state = "none"; close(); drawModels(el); toast("同意しました。ダウンロードできます"); }; }); }
+    if (d.dl) { const m = K.models.find((x) => x.id === d.dl); m.state = "downloading"; m.progress = 0;
+      const t = setInterval(() => { m.progress = Math.min(100, m.progress + 9); if (m.progress >= 100) { clearInterval(t); m.state = "ready"; toast(m.name + " が使用可能になりました"); call("onSettings"); } if (el.isConnected) drawModels(el); }, 200);
+      drawModels(el); }
+    if (d.use) { useModel(d.use); drawModels(el); }
+  };
+}
+function useModel(id) {
+  const m = K.models.find((x) => x.id === id); K.models.filter((x) => x.kind === m.kind).forEach((x) => (x.inUse = x.id === id));
+  K.settings[m.kind] = id; call("onSettings");
+}
+function modelSelect(kind) {
+  return `<select class="input" data-model="${kind}">${K.models.filter((m) => m.kind === kind).map((m) => {
+    const ok = m.state === "ready" || m.state === "builtin";
+    return `<option value="${m.id}" ${K.settings[kind] === m.id ? "selected" : ""} ${ok ? "" : "disabled"}>${esc(m.name)}${ok ? "" : "（未ダウンロード）"}</option>`; }).join("")}</select>`;
+}
+const tog = (key, on) => `<button class="toggle ${on ? "on" : ""}" data-tog="${key}" aria-label="${key}"></button>`;
+function renderSettings(el, opts = {}) { drawSettings(freshRoot(el), opts); }
+function drawSettings(el, opts = {}) {
+  const s = K.settings;
+  el.innerHTML = `
+  <div class="sec"><h3>言語と翻訳</h3><div class="kv">
+    <span>話される言語（最大2つ）</span><div class="hrow wrap">${Object.entries(K.langs).map(([k, v]) => `<button class="btn sm ${s.spoken.includes(k) ? "sel" : ""}" data-lang="${k}">${v}</button>`).join("")}</div>
+    <span>翻訳先</span><select class="input" data-into style="width:200px"><option value="">翻訳しない</option>${Object.entries(K.langs).map(([k, v]) => `<option value="${k}" ${s.translateInto === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+    <span>逆方向にも翻訳する（⇄）</span>${tog("mutual", s.mutual)}</div></div>
+  <div class="sec"><h3>モデル</h3><div class="kv"><span>文字起こしモデル</span>${modelSelect("asr")}<span>翻訳モデル</span>${modelSelect("mt")}<span>話者分離モデル</span>${modelSelect("diar")}</div>
+    ${opts.modelsLink ? `<button class="btn sm ghost" data-models style="margin-top:6px">モデルの管理（ダウンロード・ライセンス）…</button>` : ""}</div>
+  <div class="sec"><h3>辞書</h3><p class="meta" style="margin:0 0 6px">誤認識を正しい表記に直し、翻訳でもその表記を保ちます。</p>
+    <table class="tbl"><tr><th>誤認識された表記</th><th>正しい表記</th><th></th></tr>${s.glossary.map(([a, b], i) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td><td style="text-align:right"><button class="btn sm danger" data-gdel="${i}">削除</button></td></tr>`).join("")}
+    <tr><td><input class="input" data-ga placeholder="誤認識された表記"></td><td><input class="input" data-gb placeholder="正しい表記"></td><td style="text-align:right"><button class="btn sm" data-gadd>追加</button></td></tr></table></div>
+  <div class="sec"><h3>録音</h3><div class="kv">
+    <span>録音開始時に画面をクリアする</span>${tog("clearOnStart", s.clearOnStart)}
+    <span>対面モードを保存する</span><div class="hrow">${tog("saveFaceToFace", s.saveFaceToFace)}<span class="meta">既定は保存しない</span></div>
+    <span>自動録音</span><div class="hrow">${tog("autoRecord", s.autoRecord)}<span class="meta">会議が終わって ${s.autoStopGraceSec} 秒で自動停止。手動で止めたら再開しません</span></div>
+    <span>アドバイザー</span><span class="meta">手動のみ（頼んだときだけ出します）</span></div></div>
+  <div class="sec"><h3>Google カレンダー</h3>${S.signedIn
+    ? `<div class="hrow"><span class="grow">${esc(K.calendar.signedIn)} でサインイン中 <span class="meta">· 最後に読んだ時刻 ${esc(K.calendar.lastRead)}</span></span><button class="btn sm" data-cal="out">サインアウト</button></div>`
+    : `<div class="hrow"><span class="grow meta">会議が始まる直前に画面の上にカードを出し、ワンクリックで録音を始められます。読むのはカレンダーだけで、音声と文字起こしは外に出ません。</span><button class="btn sm primary" data-cal="in">Google でサインイン</button></div>`}</div>
+  <div class="sec"><h3>Web 調べもの</h3><div class="hrow">${tog("webResearch", s.webResearch)}<span class="meta grow">オプトイン。送る前に毎回、送る内容を確認します。音声・文字起こしは送りません。</span></div></div>
+  ${obsidianSettingsHTML()}
+  <div class="sec"><h3>検索するフォルダ</h3>${foldersHTML()}</div>
+  <details class="sec"><summary class="meta" style="cursor:pointer">詳細</summary><div class="stack" style="margin-top:8px;align-items:flex-start">
+    <button class="btn sm" data-eval>話者分離の評価…</button><span class="meta">開発者向け: 文字起こし・翻訳の評価（#32 / #37 / #43）は CLI から実行します。</span></div></details>`;
+  const re = () => drawSettings(el, opts);
+  el.onclick = (e) => {
+    const t = e.target, d = t.dataset;
+    if (d.lang) { const i = s.spoken.indexOf(d.lang); if (i >= 0) { if (s.spoken.length > 1) s.spoken.splice(i, 1); } else if (s.spoken.length >= 2) return toast("話される言語は最大2つまでです"); else s.spoken.push(d.lang); re(); }
+    if (d.tog) {
+      if (d.tog === "autoRecord") setAutoRecord(!s.autoRecord);
+      else if (d.tog.startsWith("ob-")) { const k = d.tog.slice(3); s.obsidian[k] = !s.obsidian[k]; }
+      else if (d.tog === "webResearch" && !s.webResearch) return webResearch(null, re);
+      else s[d.tog] = !s[d.tog];
+      call("onSettings"); re();
+    }
+    if (d.gdel) { s.glossary.splice(+d.gdel, 1); re(); }
+    if (d.gadd !== undefined) { const a = $("[data-ga]", el).value.trim(), b = $("[data-gb]", el).value.trim(); if (!a || !b) return toast("両方の表記を入れてください"); s.glossary.push([a, b]); re(); }
+    if (d.cal === "out") { S.signedIn = false; call("onSettings"); re(); }
+    if (d.cal === "in") { t.disabled = true; t.textContent = "ブラウザでサインインを完了してください…"; setTimeout(() => { S.signedIn = true; call("onSettings"); re(); }, 1200); }
+    if (d.models !== undefined) sheet("モデル", "", (m) => renderModels(m));
+    if (d.eval !== undefined) openEval();
+  };
+  el.onchange = (e) => {
+    if (e.target.dataset.into !== undefined) { s.translateInto = e.target.value || null; call("onSettings"); }
+    if (e.target.dataset.model) useModel(e.target.value);
+    if (e.target.dataset.ob) { s.obsidian[e.target.dataset.ob] = e.target.value; call("onSettings"); }
+  };
+  wireFolders(el, re);
+}
+
+/* ===== core: import queue (#10) and diarization evaluation (#11) ===== */
+const IMPORT_STATE = { done: ["完了", "ok"], running: ["取り込み中", "info"], pending: ["待機中", ""], failed: ["失敗", ""], skipped: ["スキップ", ""] };
+let importJoin = true, importTimer = 0;
+function importTick() {
+  const q = K.importQueue;
+  let run = q.find((j) => j.state === "running");
+  if (!run) { run = q.find((j) => j.state === "pending"); if (!run) { clearInterval(importTimer); importTimer = 0; return; } run.state = "running"; }
+  run.progress = Math.min(1, run.progress + 0.08);
+  if (run.progress >= 1) {
+    run.state = "done";
+    const grp = run.joinGroup && q.filter((j) => j.joinGroup === run.joinGroup);
+    if (grp && importJoin) { if (grp.every((j) => j.state === "done")) { addImported(run.joinGroup + "（" + grp.length + " ファイルを結合）"); toast(grp.length + " つの WAV を 1 つの会議に結合しました"); } }
+    else { addImported(run.file); toast(run.file + " を取り込みました"); }
+  }
+  call("onImport");
+}
+function addImported(title) {
+  K.recordings.push({ id: "i" + Date.now(), title, date: "2026-11-17 —", durationMs: 600000, source: "import", lanes: ["Imported"], speakers: {},
+    utterances: [{ id: "i" + Date.now() + "u", lane: "Imported", spk: null, start: 1000, end: 5000, text: "（取り込んだ音声の文字起こし）", units: ["（取り込んだ", "音声の", "文字起こし）"], tr: null, reviewed: false }],
+    minutes: null, stats: null, advisor: [], diarized: false, status: "transcribed", note: null });
+  call("onRecChange");
+}
+function ensureImportRunning() { if (!importTimer) importTimer = setInterval(importTick, 300); }
+function renderImport(el) {
+  const q = K.importQueue, grp = q.filter((j) => j.joinGroup);
+  if (q.some((j) => j.state === "running" || j.state === "pending")) ensureImportRunning();
+  el.innerHTML = `<div class="hrow"><span class="meta grow">WAV / M4A / MP3。同じ入力・設定で完了済みのファイルはスキップします。</span><button class="btn" data-add>ファイルを追加…</button></div>
+    ${grp.length ? `<label class="check" style="margin:8px 0"><input type="checkbox" data-join ${importJoin ? "checked" : ""}> <span>分割された WAV（${grp.map((j) => esc(j.file)).join(" + ")}）を 1 つの会議に結合する</span></label>` : ""}
+    <table class="tbl"><tr><th>ファイル</th><th>サイズ</th><th style="width:220px">状態</th><th></th></tr>${q.map((j) => {
+      const [label, cls] = IMPORT_STATE[j.state];
+      const st = j.state === "running" ? `<div class="hrow"><div class="bar grow"><i style="width:${Math.round(j.progress * 100)}%"></i></div><span class="num meta">${Math.round(j.progress * 100)}%</span></div>`
+        : `<span class="chip ${cls}">${label}</span> ${j.error ? `<div class="err meta">${esc(j.error)}</div>` : ""}${j.note ? `<span class="meta">${esc(j.note)}</span>` : ""}`;
+      return `<tr><td>${esc(j.file)}${j.joinGroup && importJoin ? ' <span class="chip">結合</span>' : ""}</td><td class="meta">${esc(j.size)}</td><td>${st}</td><td style="text-align:right">${j.state === "failed" ? `<button class="btn sm" data-retry="${j.id}">再試行</button>` : ""}</td></tr>`; }).join("")}</table>`;
+  el.onclick = (e) => {
+    const d = e.target.dataset;
+    if (d.retry) { const j = q.find((x) => x.id === d.retry); Object.assign(j, { state: "pending", progress: 0, error: null }); ensureImportRunning(); renderImport(el); }
+    if (d.add !== undefined) { const n = q.length + 1, ext = ["wav", "m4a", "mp3"][n % 3];
+      q.push({ id: "q" + n + Date.now(), file: `meeting-${n}.${ext}`, size: "12 MB", durMs: 600000, state: "pending", progress: 0 });
+      q.push({ id: "q" + n + "d" + Date.now(), file: "all-hands.mp3", size: "48 MB", durMs: 3600000, state: "skipped", progress: 1, note: "同じ入力・設定で完了済み" });
+      ensureImportRunning(); renderImport(el); }
+  };
+  el.onchange = (e) => { if (e.target.dataset.join !== undefined) { importJoin = e.target.checked; renderImport(el); } };
+}
+function openEval() {
+  const E = K.evaluation; let ran = false;
+  sheet("話者分離の評価", "", (el) => {
+    const draw = () => {
+      const r = recById(E.recording) || K.recordings[0];
+      el.innerHTML = `<div class="kv">
+        <span>録音</span><select class="input" data-e="recording">${K.recordings.filter((x) => x.utterances.length > 2).map((x) => `<option value="${x.id}" ${x.id === E.recording ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select>
+        <span>参照 RTTM</span><select class="input" data-e="reference"><option>weekly.rttm</option><option>（ファイルを選ぶ…）</option></select>
+        <span>比べ方</span><div class="seg"><button data-mode="der" class="${E.mode === "der" ? "sel" : ""}">人手参照の DER</button><button data-mode="disagreement" class="${E.mode === "disagreement" ? "sel" : ""}">モデル間の不一致</button></div>
+        <span>範囲</span><div class="hrow"><input class="input num" style="width:70px" value="${K.mmss(E.range[0])}"> – <input class="input num" style="width:70px" value="${K.mmss(E.range[1])}"></div>
+        <span>カラー（ms）</span><input class="input num" style="width:90px" data-e="collarMs" value="${E.collarMs}">
+        <span>重なりの扱い</span><select class="input" data-e="overlap" style="width:160px"><option value="include" ${E.overlap === "include" ? "selected" : ""}>含める</option><option value="exclude" ${E.overlap === "exclude" ? "selected" : ""}>除外する</option></select></div>
+        <div class="hrow" style="margin-top:12px"><span class="grow meta">${E.mode === "der" ? "pyannote の結果を人手の参照と比べます" : "pyannote と Nemotron（暫定）の結果を比べます"}</span><button class="btn primary" data-run>評価する</button></div>
+        ${ran ? `<div class="sep"></div><div class="hrow wrap">${E.mode === "der" ? `<b class="num">DER ${(E.result.der * 100).toFixed(1)}%</b><span class="meta num">見逃し ${(E.result.miss * 100).toFixed(1)}% · 誤検出 ${(E.result.fa * 100).toFixed(1)}% · 取り違え ${(E.result.confusion * 100).toFixed(1)}% · 対象 ${(E.result.scored / 1000).toFixed(1)} 秒</span>` : `<b class="num">不一致 9.8%</b><span class="meta">pyannote ⇄ Nemotron</span>`}</div>
+          <h3 style="margin:10px 0 4px">不一致（クリックで再生）</h3>${E.mismatches.map((m) => `<div class="row hrow" data-play="${m.start}"><span class="num">${K.mmss(m.start)}–${K.mmss(m.end)}</span><span class="grow">${esc(m.kind)}</span><span class="meta">参照 ${esc(m.ref)} / 結果 ${esc(m.hyp)}</span></div>`).join("")}
+          <div class="hrow" style="margin-top:8px"><span class="grow"></span><button class="btn" data-json>結果を JSON で保存</button></div>` : ""}`;
+    };
+    el.onclick = (e) => {
+      const d = e.target.closest("[data-play]")?.dataset || e.target.dataset;
+      if (d.mode) { E.mode = d.mode; draw(); }
+      if (d.run !== undefined) { ran = true; draw(); }
+      if (d.play) { const r = recById(E.recording); playAt(r, +d.play); toast(K.mmss(+d.play) + " から再生しています"); }
+      if (d.json !== undefined) {
+        const json = JSON.stringify({ recording: E.recording, reference: E.reference, mode: E.mode, range: E.range, collarMs: E.collarMs, overlap: E.overlap, result: E.result, mismatches: E.mismatches, inputs: E.hashes }, null, 2);
+        sheet("評価結果（JSON）", `<pre class="pre">${esc(json)}</pre><p class="meta">入力のハッシュ付きで ${esc(K.settings.recordDir)}/eval-${E.recording}.json に保存しました。</p>`);
+      }
+    };
+    el.onchange = (e) => { const k = e.target.dataset.e; if (k) { E[k] = k === "collarMs" ? +e.target.value : e.target.value; if (k === "recording") draw(); } };
+    draw();
+  });
+}
+
+/* ===== core: recording detail (#4 #8 #9 #12 #14 #15 #16) ===== */
+const SRC = { meeting: "会議", face: "対面", import: "取り込み" };
+function renderDetail(el, rec, st, opts = {}) {
+  st.tab = st.tab || "text";
+  const adv = rec.advisor || [];
+  const diarBtn = st.diar != null ? `<span class="meta">${diarText(st.diar)}</span>` : `<button class="btn sm" data-d="diar">${rec.diarized ? "話者を判別し直す" : "話者を判別"}</button>`;
+  el.innerHTML = `<div class="stack" style="height:100%;gap:0">
+    <div class="hrow wrap" style="padding:10px 14px 6px">${opts.back ? `<button class="btn sm ghost" data-d="back">← 録音一覧</button>` : ""}
+      <div class="grow"><h1 style="font-size:16px">${esc(rec.title)}</h1><div class="meta">${esc(rec.date)} · ${K.mmss(rec.durationMs)} · ${SRC[rec.source] || ""}${rec.importedFrom ? " · " + esc(rec.importedFrom) : ""}</div></div>
+      ${diarBtn}<button class="btn sm" data-d="names">話者名…</button><button class="btn sm" data-d="export">書き出し…</button><button class="btn sm" data-d="obsidian">${rec.note ? "Obsidian のノート…" : "Obsidian に書き出す"}</button>
+      ${isDirty(rec) ? `<span class="chip warn">未保存</span>` : ""}<button class="btn sm ${isDirty(rec) ? "primary" : ""}" data-d="save" ${isDirty(rec) ? "" : "disabled"}>保存</button></div>
+    <div class="hrow" style="padding:0 14px 8px">${pipelineHTML(rec)}${statusChip(rec)}<span class="meta grow">${rec._busy ? "" : pending(rec) ? "次: " + STEP_ACTION[rec.status] : esc(rec.note ? rec.note.path : "")}</span>${pending(rec) && !rec._busy ? `<button class="btn sm primary" data-d="finish">続きを処理</button>` : ""}${stale(rec) ? `<button class="btn sm" data-d="obsidian">ノートを更新</button>` : ""}</div>
+    <div class="hrow" style="padding:0 14px 8px;border-bottom:1px solid var(--border)"><div class="seg" data-tabs>${[["text", "文字起こし"], ["minutes", "議事録"], ["stats", "統計"], ["ask", "質問"], ["advice", "アドバイス" + (adv.length ? " " + adv.length : "")]].map(([k, v]) => `<button data-t="${k}" class="${st.tab === k ? "sel" : ""}">${v}</button>`).join("")}</div>
+      <span class="grow"></span>${st.tab === "text" ? `<button class="btn sm" data-d="next">次の未校閲へ</button><button class="btn sm ${st.cueEdit ? "sel" : ""}" data-d="cue">字幕の区切りを編集</button>` : ""}</div>
+    <div class="scroll grow" data-body style="padding:8px 14px"></div>
+    ${opts.player === false ? "" : `<div class="hrow" style="padding:6px 14px;border-top:1px solid var(--border)"><button class="btn sm" data-d="play" data-playbtn>${S.playing && S.playerRec === rec.id ? "一時停止" : "▶ 再生"}</button><div class="bar grow"><i data-playbar style="width:0"></i></div><span class="num meta" data-playpos>${K.mmss(S.playerRec === rec.id ? S.pos : 0)} / ${K.mmss(rec.durationMs)}</span></div>`}</div>`;
+  const body = $("[data-body]", el), re = () => renderDetail(el, rec, st, opts);
+  if (st.tab === "text" && !rec.utterances.length) body.innerHTML = `<p class="muted">まだ文字起こししていません（${esc(rec.importedFrom || "録音した音声")}）。</p><button class="btn primary" data-d="finish">続きを処理</button>`;
+  else if (st.tab === "text") {
+    const n = rec.utterances.filter((u) => !u.reviewed).length;
+    body.innerHTML = `<div class="meta" style="margin-bottom:4px">未校閲 ${n} / ${rec.utterances.length} · 字幕 ${cueCount(rec)} 件 · 単語の時刻は推定</div><div data-words-root>${rec.utterances.map((u) => uttHTML(rec, u, { cueEdit: st.cueEdit })).join("")}</div>`;  } else if (st.tab === "minutes") renderMinutes(body, rec);
+  else if (st.tab === "stats") renderStats(body, rec);
+  else if (st.tab === "ask") renderAsk(body, rec);
+  else body.innerHTML = `<div class="hrow" style="margin-bottom:8px"><span class="meta grow">アドバイザーは手動のみ。頼んだときだけ根拠付きで出します。</span><button class="btn sm" data-d="advise">アドバイスを出す</button></div>
+    <div class="stack" data-advrec="${rec.id}">${adv.map((c) => adviceCardHTML(c, rec.id)).join("") || `<span class="meta">${S.mutedRecs.has(rec.id) ? "この会議ではアドバイスを出しません。" : "カードはありません。"}</span>`}</div>`;
+  wireTranscript(body, () => rec, re);
+  el.onclick = (e) => {
+    const t = e.target.closest("[data-t]"); if (t) { st.tab = t.dataset.t; return re(); }
+    const d = e.target.closest("[data-d]")?.dataset.d; if (!d) return;
+    if (d === "back") call("closeDetail");
+    if (d === "diar") { st.diar = 0; re(); diarize(rec, (p) => { st.diar = p; re(); }, () => { st.diar = null; re(); }); }
+    if (d === "names") openSpeakerNames(rec, re);
+    if (d === "export") openExport(rec);
+    if (d === "obsidian") openObsidian(rec);
+    if (d === "finish") finishPipeline(rec);
+    if (d === "save") saveRec(rec);
+    if (d === "cue") { st.cueEdit = !st.cueEdit; re(); }
+    if (d === "play") togglePlay(rec);
+    if (d === "next") { const cur = $(".utt.flash", body)?.dataset.u || null; const u = nextUnreviewed(rec, cur); if (!u) return toast("未校閲の発話はありません"); flashEl($(`[data-u="${u.id}"]`, body)); }
+    if (d === "advise") { if (S.advisorStopped) return toast("アドバイザーは停止中です"); if (S.mutedRecs.has(rec.id)) return toast("この会議ではアドバイスを出さない設定です");
+      if (!adv.length) { const f = rec.utterances.find((u) => /[?？]/.test(u.text)); if (f) adv.push({ id: "a" + Date.now(), kind: "確認", text: "「" + f.text.slice(0, 24) + "」への答えが記録にありません。", ev: [f.id] }); else return toast("出せるアドバイスはありません"); } re(); }
+  };
+}
+function updateDetailPlayer(el, rec) {
+  if (!el || S.playerRec !== rec.id) return;
+  const b = $("[data-playbar]", el), p = $("[data-playpos]", el), btn = $("[data-playbtn]", el);
+  if (b) b.style.width = (S.pos / rec.durationMs) * 100 + "%";
+  if (p) p.textContent = K.mmss(S.pos) + " / " + K.mmss(rec.durationMs);
+  if (btn) btn.textContent = S.playing ? "一時停止" : "▶ 再生";
+}
+function focusUtt(el, uttId) { const u = el && $(`[data-u="${uttId}"]`, el); if (u) flashEl(u); }
+
+/* ===== core: ~90 meetings/month — list, post-processing pipeline, Obsidian ===== */
+const STEPS = ["recorded", "transcribed", "diarized", "minutes", "exported"];
+const STEP_ACTION = { recorded: "文字起こし", transcribed: "話者を判別", diarized: "議事録を作る", minutes: "Obsidian に書き出す" };
+const TODAY = "2026-11-17";
+const byDateDesc = () => K.recordings.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+const pending = (r) => r.status !== "exported";
+const stale = (r) => r.note && r.note.state === "stale";
+const notePath = (r) => { const o = K.settings.obsidian; return `${o.vault}/${o.folder}/${o.fileName.replace("{date}", r.date.slice(0, 10)).replace("{title}", r.title)}`; };
+function statusChip(r) {
+  if (stale(r)) return `<span class="chip warn">ノートが古い</span>`;
+  if (r.status === "exported") return `<span class="chip ok">${K.STATUS.exported}</span>`;
+  if (r._busy) return `<span class="chip info">${esc(r._busy)}</span>`;
+  return `<span class="chip">${K.STATUS[r.status]}</span>`;
+}
+/* step dots: done = filled, current = outlined; text says where it stopped */
+function pipelineHTML(r) {
+  const i = STEPS.indexOf(r.status);
+  const dots = STEPS.map((s, k) => `<span title="${K.STATUS[s]}" style="display:inline-block;width:8px;height:8px;border-radius:50%;border:1px solid var(--fg);background:${k <= i ? "var(--fg)" : "transparent"}"></span>`).join("");
+  return `<span class="hrow" style="gap:3px">${dots}</span>`;
+}
+function groupLabel(date) {
+  const d = date.slice(0, 10);
+  if (d === TODAY) return "今日";
+  const diff = Math.round((new Date(TODAY) - new Date(d)) / 864e5);
+  if (diff === 1) return "昨日";
+  if (diff < 7) return "今週";
+  if (diff < 14) return "先週";
+  return d.slice(0, 7).replace("-", " 年 ") + " 月";
+}
+/* the one list used everywhere: date groups (older groups folded), status filter, row renderer injectable */
+const LIST = { filter: "all", open: new Set(["今日", "昨日", "今週"]) };
+const FILTERS = [["all", "すべて"], ["pending", "後処理待ち"], ["stale", "ノートが古い"]];
+function listFiltered() {
+  return byDateDesc().filter((r) => LIST.filter === "all" || (LIST.filter === "pending" ? pending(r) : stale(r)));
+}
+function renderRecList(el, onOpen, opts = {}) {
+  const rows = listFiltered(), groups = [];
+  rows.forEach((r) => { const g = groupLabel(r.date); if (!groups.length || groups[groups.length - 1][0] !== g) groups.push([g, []]); groups[groups.length - 1][1].push(r); });
+  const nPend = K.recordings.filter(pending).length, nStale = K.recordings.filter(stale).length;
+  const row = opts.row || ((r) => `<div class="row hrow" data-open-rec="${r.id}" style="padding:5px 8px"><span class="num meta">${r.date.slice(11)}</span><span class="grow">${esc(r.title)}</span>${pipelineHTML(r)}${statusChip(r)}${isDirty(r) ? '<span class="chip warn">未保存</span>' : ""}</div>`);
+  el.innerHTML = `<div class="hrow" style="margin-bottom:6px"><div class="seg">${FILTERS.map(([k, v]) => `<button data-lf="${k}" class="${LIST.filter === k ? "sel" : ""}">${v}${k === "pending" ? " " + nPend : k === "stale" ? " " + nStale : ""}</button>`).join("")}</div><span class="grow"></span>
+    ${LIST.filter === "pending" && nPend ? `<button class="btn sm" data-lall>後処理をすべて進める</button>` : ""}${LIST.filter === "stale" && nStale ? `<button class="btn sm" data-lstale>ノートをすべて更新</button>` : ""}<span class="meta">${rows.length} 件</span></div>
+    ${groups.map(([g, rs]) => { const open = LIST.open.has(g) || LIST.filter !== "all";
+      return `<div class="hrow" data-lg="${esc(g)}" style="cursor:pointer;padding:6px 0 2px"><h3 class="grow">${open ? "▾" : "▸"} ${esc(g)}</h3><span class="meta">${rs.length} 件${rs.some(pending) ? " · 後処理待ち " + rs.filter(pending).length : ""}</span></div>${open ? rs.map(row).join("") : ""}`; }).join("") || `<p class="muted">該当する会議はありません。</p>`}`;
+  el.onclick = (e) => {
+    const t = e.target;
+    if (t.dataset.lf) { LIST.filter = t.dataset.lf; return renderRecList(el, onOpen, opts); }
+    const g = t.closest("[data-lg]"); if (g) { const k = g.dataset.lg; LIST.open.has(k) ? LIST.open.delete(k) : LIST.open.add(k); return renderRecList(el, onOpen, opts); }
+    if (t.dataset.lall !== undefined) { K.recordings.filter(pending).forEach((r) => finishPipeline(r, true)); return; }
+    if (t.dataset.lstale !== undefined) { K.recordings.filter(stale).forEach((r) => writeNote(r, true)); toast("古いノートをすべて更新しました"); call("onRecChange"); return; }
+    if (t.closest("[data-step]")) { const r = recById(t.closest("[data-step]").dataset.step); return finishPipeline(r); }
+    const o = t.closest("[data-open-rec]"); if (o) onOpen(o.dataset.openRec);
+  };
+}
+/* offline post-processing: one click runs every remaining step; auto export to Obsidian if enabled */
+function stepOnce(r) {
+  if (r.status === "recorded" && !r.utterances.length) {
+    const p = "t" + r.id;
+    r.utterances = [{ id: p + "a", lane: r.lanes[0], spk: null, start: 1000, end: 5200, text: "では、始めましょう。", units: ["では、", "始めましょう。"], tr: "Let's get started.", reviewed: false },
+      { id: p + "b", lane: r.lanes[r.lanes.length - 1], spk: null, start: 5600, end: 9800, text: "今日の議題は次の四半期の計画です。", units: ["今日の", "議題は", "次の", "四半期の", "計画です。"], tr: "Today's topic is next quarter's plan.", reviewed: false }];
+  }
+  if (r.status === "transcribed") { if (!Object.keys(r.speakers).length) r.speakers = { S1: { name: "", auto: "SPEAKER_00" }, S2: { name: "", auto: "SPEAKER_01" } }; r.utterances.forEach((u, i) => { if (!u.spk) u.spk = i % 2 ? "S2" : "S1"; }); r.diarized = true; }
+  if (r.status === "diarized" && !r.minutes) r.minutes = fakeMinutes(r);
+  if (r.status === "minutes") { writeNote(r, true); return; }
+  r.status = STEPS[STEPS.indexOf(r.status) + 1];
+}
+function finishPipeline(r, quiet) {
+  if (!pending(r) || r._busy) return;
+  const auto = K.settings.obsidian.autoExport === "minutes";
+  const tick = () => {
+    const stopAt = auto ? "exported" : "minutes";
+    if (r.status === stopAt || r.status === "exported") { r._busy = null; if (!quiet) toast("「" + r.title + "」の後処理が終わりました" + (r.status === "exported" ? "（Obsidian に書き出し済み）" : "")); call("onRecChange"); return; }
+    r._busy = STEP_ACTION[r.status] + "中…"; call("onRecChange");
+    setTimeout(() => { stepOnce(r); tick(); }, 450);
+  };
+  tick();
+}
+function writeNote(r, quiet) {
+  r.note = { path: K.settings.obsidian.folder + "/" + notePath(r).split("/").pop(), state: "fresh" };
+  r.status = "exported";
+  if (!quiet) toast(notePath(r) + " に書き出しました");
+}
+function openObsidian(r) {
+  sheet("Obsidian に書き出す", `<div class="meta mono">${esc(notePath(r))}</div>${r.note ? `<div class="meta" style="margin-top:4px">${stale(r) ? "保管庫のノートは、この会議の最新の内容より古くなっています" : "保管庫のノートは最新です"}</div>` : ""}
+    <pre class="pre" style="margin-top:8px">${esc(K.exportText(r, "obsidian"))}</pre><div class="hrow" style="margin-top:12px"><span class="grow meta">議事録ができたら自動で書き出す: ${K.settings.obsidian.autoExport === "minutes" ? "オン" : "オフ"}</span><button class="btn primary" data-ok>${r.note ? "ノートを更新" : "書き出す"}</button></div>`, (el, close) => {
+    $("[data-ok]", el).onclick = () => { writeNote(r); close(); call("onRecChange"); };
+  });
+}
+function obsidianSettingsHTML() {
+  const o = K.settings.obsidian;
+  return `<div class="sec"><h3>Obsidian</h3><div class="kv">
+    <span>保管庫</span><input class="input mono" data-ob="vault" value="${esc(o.vault)}">
+    <span>フォルダ</span><input class="input mono" data-ob="folder" value="${esc(o.folder)}">
+    <span>ファイル名</span><input class="input mono" data-ob="fileName" value="${esc(o.fileName)}">
+    <span>自動で書き出す</span><select class="input" data-ob="autoExport" style="width:220px"><option value="minutes" ${o.autoExport === "minutes" ? "selected" : ""}>議事録ができたら</option><option value="off" ${o.autoExport !== "minutes" ? "selected" : ""}>しない（手動のみ）</option></select>
+    <span>文字起こしを含める</span>${tog("ob-includeTranscript", o.includeTranscript)}
+    <span>訳文を含める</span>${tog("ob-includeTranslation", o.includeTranslation)}
+    <span>frontmatter</span><span class="meta mono">${o.frontmatter.join(", ")}</span></div></div>`;
+}
+
+
+/* ===== 19 menubar-first ===== */
+let popOpen = true;
+const W = { open: false, view: "recs", rec: null, st: {}, q: "" };
+const unrev = (r) => r.utterances.filter((u) => !u.reviewed).length;
+
+function renderMenubar() {
+  const b = $("#mb-status");
+  let h;
+  if (S.phase === "rec") h = `<span class="dot-rec"></span><span class="num" data-elapsed>${K.mmss(elapsed())}</span>${S.mode === "face" ? " 対面" : ""}`;
+  else if (S.phase === "finishing") h = "Kikimimic · 仕上げ中";
+  else if (S.auto.state === "エラー") h = `<span class="err">Kikimimic · 自動録音エラー</span>`;
+  else h = "Kikimimic" + (K.settings.autoRecord ? " · 自動録音 " + S.auto.state : "");
+  b.innerHTML = h; b.classList.toggle("ghost", !popOpen);
+}
+
+/* ---- the popover: everything for "just before" and "during" ---- */
+function statusBlock() {
+  if (S.phase === "finishing") return `<div class="blk"><div class="meta">録音を停止しました</div><div class="big-time">翻訳を仕上げています…</div></div>`;
+  if (S.phase === "rec") {
+    const saveChip = S.mode === "face" ? `<button class="btn sm" data-p="facesave">${faceSaves() ? "保存する" : "保存しない"}</button>` : `<span class="chip">保存する</span>`;
+    const lanes = S.mode === "face" ? `<span class="chip">Me（マイク）</span>` : `<span class="chip">Me（マイク）</span><span class="chip">Them（${esc(S.capturing)}）</span>`;
+    return `<div class="blk stack"><div class="hrow"><span class="dot-rec"></span><span class="big-time num grow" data-elapsed>${K.mmss(elapsed())}</span><button class="btn" data-p="stop">■ 停止</button></div>
+      <div class="hrow wrap">${lanes}<span class="grow"></span><span class="meta">${S.mode === "face" ? "対面の保存" : "保存"}</span>${saveChip}</div></div>`;
+  }
+  return `<div class="blk stack"><div class="hrow"><span class="big-time grow">待機中</span></div>
+    <div class="hrow"><button class="btn rec grow" data-p="meeting" style="justify-content:center" title="Me（マイク）+ Them（システム音声）">● 会議を録音</button><button class="btn grow" data-p="face" style="justify-content:center" title="マイクのみ">対面</button></div>
+    <div class="hrow"><span class="meta grow">対面の録音</span><div class="seg"><button data-p="face-on" class="${faceSaves() ? "sel" : ""}">保存する</button><button data-p="face-off" class="${faceSaves() ? "" : "sel"}">保存しない</button></div></div></div>`;
+}
+function liveBlock() {
+  if (S.phase !== "rec" && !(S.phase === "finishing")) return "";
+  const last = S.lines.slice(-3).map((l) => liveLineHTML(l)).join("") || `<span class="meta">聞き取り中…</span>`;
+  const n = S.pendingAdvice.length;
+  return `<div class="blk"><div class="live" data-livebox>${last}</div>
+    <div class="hrow" style="margin-top:6px"><button class="btn sm" data-p="advise" data-advn ${S.advisorStopped ? "disabled" : ""}>アドバイス${n ? " " + n : ""}</button><span class="grow"></span><button class="btn sm ghost" data-p="livewin">全文をウィンドウで</button></div>
+    ${S.shownAdvice.length ? `<div class="stack" data-advlive style="margin-top:6px">${S.shownAdvice.map((c) => adviceCardHTML(c)).join("")}</div>` : ""}</div>`;
+}
+function autoBlock() {
+  const on = K.settings.autoRecord;
+  return `<div class="blk"><div class="hrow"><h3 class="grow" style="margin:0">自動録音</h3>${on ? autoChip() : ""}${tog("autoRecord", on)}</div>
+    ${on ? `<div class="meta" style="margin-top:4px">会議が終わって ${K.settings.autoStopGraceSec} 秒で自動停止${S.auto.manualStopped ? " · 手動で停止したので、この会議では再開しません" : ""}</div>
+      ${S.auto.state.startsWith("停止まで") ? `<div class="hrow" style="margin-top:6px"><div class="bar grow"><i style="width:${(S.auto.countdown / 60) * 100}%"></i></div><button class="btn sm" data-p="stop">今すぐ停止</button></div>` : ""}
+      <div class="hrow" style="margin-top:6px"><span class="meta">再現:</span><button class="btn sm ghost" data-p="a-begin">会議が始まる</button><button class="btn sm ghost" data-p="a-end">会議が終わる</button><button class="btn sm ghost" data-p="a-err">エラー</button></div>` : ""}</div>`;
+}
+function calendarBlock() {
+  if (!S.signedIn) return `<div class="blk"><h3>次の予定</h3><div class="hrow"><span class="meta grow">カレンダーは未接続</span><button class="btn sm" data-p="signin">Google でサインイン</button></div></div>`;
+  return `<div class="blk"><h3>次の予定</h3>${K.calendar.events.map((e) => `<div class="row hrow" data-ev="${e.id}" style="padding:4px 6px"><span class="num meta">${e.start}</span><span class="grow">${esc(e.title)}</span>${e.auto && K.settings.autoRecord ? '<span class="chip">自動</span>' : ""}${e.offline ? '<span class="chip">対面</span>' : ""}<span class="meta">${e.done ? "録音済み" : e.inMin < 0 ? "開始済み" : e.inMin < 60 ? "あと " + e.inMin + " 分" : ""}</span></div>`).join("")}
+    <div class="meta" style="margin-top:4px">${esc(K.calendar.signedIn)} · 最後に読んだ時刻 ${esc(K.calendar.lastRead)}</div></div>`;
+}
+function recentBlock() {
+  const nP = K.recordings.filter(pending).length, nS = K.recordings.filter(stale).length;
+  return `<div class="blk"><h3>直近の会議</h3>${byDateDesc().slice(0, 4).map((r) => `<div class="row hrow" data-rec="${r.id}" style="padding:4px 6px"><span class="meta num">${esc(r.date.slice(5, 16))}</span><span class="grow">${esc(r.title)}</span>${pending(r) || stale(r) || r._busy ? statusChip(r) : ""}${isDirty(r) ? '<span class="chip warn">未保存</span>' : ""}</div>`).join("")}
+    <div class="hrow" style="margin-top:6px">${nP ? `<button class="btn sm" data-list="pending">後処理待ち ${nP}</button>` : ""}${nS ? `<button class="btn sm" data-list="stale">ノートが古い ${nS}</button>` : ""}<span class="grow"></span><button class="btn sm ghost" data-list="all">すべて（${K.recordings.length}）</button></div></div>`;
+}
+function footBlock() {
+  return `<div class="blk hrow" style="gap:4px"><button class="btn sm ghost" data-open="recs">ウィンドウ</button><button class="btn sm ghost" data-open="search">検索</button><button class="btn sm ghost" data-open="import">取り込み</button><button class="btn sm ghost" data-open="settings">設定</button><span class="grow"></span><button class="btn sm ghost" data-open="models">モデル</button></div>`;
+}
+function renderPop() {
+  $("#pop").classList.toggle("hidden", !popOpen);
+  if (popOpen) $("#popbody").innerHTML = statusBlock() + liveBlock() + autoBlock() + calendarBlock() + recentBlock() + footBlock();
+  renderMenubar();
+}
+$("#pop").addEventListener("click", (e) => {
+  const t = e.target, p = t.closest("[data-p]")?.dataset.p;
+  if (p === "meeting") startSession("meeting");
+  if (p === "face") startSession("face");
+  if (p === "stop") stopSession(true);
+  if (p === "face-on" || p === "face-off") { K.settings.saveFaceToFace = p === "face-on"; renderPop(); }
+  if (p === "facesave") { K.settings.saveFaceToFace = !faceSaves(); renderPop(); }
+  if (p === "advise") revealAdvice();
+  if (p === "livewin") openWindow("live");
+  if (p === "a-begin") autoMeetingBegins();
+  if (p === "a-end") autoMeetingEnds();
+  if (p === "a-err") autoError();
+  if (p === "signin") { t.disabled = true; t.textContent = "ブラウザでサインインを完了してください…"; setTimeout(() => { S.signedIn = true; renderPop(); }, 1200); }
+  if (t.dataset.tog === "autoRecord") setAutoRecord(!K.settings.autoRecord);
+  const ev = t.closest("[data-ev]");
+  if (ev) { const x = K.calendar.events.find((y) => y.id === ev.dataset.ev);
+    if (x.done) openWindow("recs", x.done); else { popOpen = false; renderPop(); showCutin(x); } }
+  const rec = t.closest("[data-rec]"); if (rec) openWindow("recs", rec.dataset.rec);
+  const o = t.closest("[data-open]"); if (o) openWindow(o.dataset.open);
+  if (t.dataset.list) { LIST.filter = t.dataset.list; W.rec = null; openWindow("recs"); }
+});
+$("#mb-status").onclick = (e) => { e.stopPropagation(); popOpen = !popOpen; renderPop(); };
+document.addEventListener("click", (e) => {
+  if (!popOpen || e.target.closest("#pop, #mb-status, .scrim, .cutin, .menu.pop, .toast")) return;
+  if (e.target.closest(".win")) { popOpen = false; renderPop(); }
+});
+/* a device question or error must surface even when the popover is closed */
+new MutationObserver(() => { if ($("#notices").children.length && !popOpen) { popOpen = true; renderPop(); } }).observe($("#notices"), { childList: true });
+
+/* ---- the secondary window: review, search, import, models, settings ---- */
+const VIEWS = [["live", "ライブ"], ["recs", "録音"], ["search", "検索"], ["import", "取り込み"], ["models", "モデル"], ["settings", "設定"]];
+function openWindow(view, recId, uttId) {
+  W.open = true; W.view = view; popOpen = false;
+  if (recId) { if (W.rec !== recId) W.st = {}; W.rec = recId; W.st.tab = uttId ? "text" : W.st.tab; }
+  renderPop(); renderWin();
+  if (uttId) focusUtt($("#wbody"), uttId);
+}
+function renderWin() {
+  $("#appwin").classList.toggle("hidden", !W.open);
+  if (!W.open) return;
+  const views = VIEWS.filter(([k]) => k !== "live" || S.phase !== "idle" || S.lines.length);
+  if (!views.some(([k]) => k === W.view)) W.view = "recs";
+  $("#wtabs").innerHTML = `<div class="seg">${views.map(([k, v]) => `<button data-v="${k}" class="${W.view === k ? "sel" : ""}">${v}</button>`).join("")}</div><span class="grow"></span>${S.phase === "rec" ? `<span class="chip rec"><span class="dot-rec"></span> 録音中</span>` : ""}`;
+  const el = $("#wbody"); el.onclick = null; el.onchange = null; el.className = "content";
+  if (W.view === "recs" && W.rec) return renderDetail(el, recById(W.rec), W.st, { back: true });
+  el.className = "content scroll pad";
+  if (W.view === "live") return renderWinLive(el);
+  if (W.view === "recs") {
+    const y = el.scrollTop;
+    renderRecList(el, (id) => { W.rec = id; W.st = {}; renderWin(); }, { row: (r) => `<div class="row hrow" data-open-rec="${r.id}" style="padding:5px 8px"><span class="num meta">${r.date.slice(11)}</span><span class="grow">${esc(r.title)}</span>${pipelineHTML(r)}${statusChip(r)}${pending(r) && !r._busy ? `<button class="btn sm" data-step="${r.id}">続きを処理</button>` : ""}</div>` });
+    el.scrollTop = y;
+    return;
+  }
+  if (W.view === "search") {
+    el.innerHTML = `<input class="input" style="width:100%" data-sq placeholder="録音とフォルダを検索" value="${esc(W.q)}"><div data-res style="margin-top:8px"></div><details class="sec"><summary class="meta" style="cursor:pointer">検索するフォルダ</summary><div data-fbox style="margin-top:6px"></div></details>`;
+    const draw = () => renderSearchResults($("[data-res]", el), W.q);
+    const fb = $("[data-fbox]", el), drawF = () => { fb.innerHTML = foldersHTML(); draw(); };
+    drawF(); wireFolders(fb, drawF);
+    $("[data-sq]", el).oninput = (e) => { W.q = e.target.value; draw(); };
+    $("[data-sq]", el).focus();
+    return;
+  }
+  if (W.view === "import") return renderImport(el);
+  if (W.view === "models") return renderModels(el);
+  if (W.view === "settings") return renderSettings(el);
+}
+function renderWinLive(el) {
+  const head = S.phase === "rec" ? `<div class="hrow" style="margin-bottom:6px"><span class="meta grow">${S.mode === "face" ? "対面（マイクのみ）" : "会議（Me + Them）"}</span><button class="btn sm" data-lv="advise">アドバイス${S.pendingAdvice.length ? " " + S.pendingAdvice.length : ""}</button><button class="btn sm" data-lv="stop">■ 停止</button></div>`
+    : S.phase === "finishing" ? `<p class="meta">翻訳を仕上げています…</p>` : `<div class="hrow" style="margin-bottom:6px"><span class="meta grow">前回のセッション</span><button class="btn sm" data-lv="clear">クリア</button></div>`;
+  el.innerHTML = head + `<div class="stack" data-advlive>${S.shownAdvice.map((c) => adviceCardHTML(c)).join("")}</div><div data-wlines>` + S.lines.map((l) => liveLineHTML(l)).join("") + `</div>`;
+  el.onclick = (e) => { const a = e.target.dataset.lv; if (a === "stop") stopSession(true); if (a === "advise") revealAdvice(); if (a === "clear") { S.lines = []; renderWin(); } };
+  el.scrollTop = el.scrollHeight;
+}
+$("#wtabs").onclick = (e) => { const v = e.target.dataset.v; if (v) { if (v === "recs" && W.view === "recs") W.rec = null; W.view = v; renderWin(); } };
+$("#appwin .titlebar").onclick = (e) => { if (e.target.dataset.w === "close") { W.open = false; renderWin(); } };
+
+/* ---- hooks from the shared core ---- */
+Object.assign(V, {
+  onTick() { $$("[data-elapsed]").forEach((x) => (x.textContent = K.mmss(elapsed()))); },
+  onLive() {
+    /* patch only the live lines so buttons in the popover are never replaced under the pointer */
+    const box = $("[data-livebox]"), adv = $("[data-advlive]", $("#pop"));
+    if (popOpen && box && (adv ? adv.children.length : 0) === S.shownAdvice.length) {
+      box.innerHTML = S.lines.slice(-3).map((l) => liveLineHTML(l)).join("");
+      $("[data-advn]").textContent = "アドバイス" + (S.pendingAdvice.length ? " " + S.pendingAdvice.length : "");
+    } else if (popOpen) renderPop();
+    if (W.open && W.view === "live") {
+      const wl = $("[data-wlines]"), wa = $("#wbody [data-advlive]");
+      if (wl && wa && wa.children.length === S.shownAdvice.length && S.phase === "rec") { wl.innerHTML = S.lines.map((l) => liveLineHTML(l)).join(""); $("#wbody").scrollTop = 1e6; }
+      else renderWinLive($("#wbody"));
+    }
+  },
+  onPhase() { renderPop(); renderWin(); },
+  onAuto() { renderPop(); },
+  onSettings() { renderPop(); },
+  onDevice() { renderPop(); },
+  onRecChange() { if (popOpen) renderPop(); if (W.open && W.view === "recs") { const el = $("#wbody"), y = $("[data-body]", el)?.scrollTop; renderWin(); const b = $("[data-body]", el); if (b && y) b.scrollTop = y; } },
+  onImport() { if (W.open && W.view === "import") renderImport($("#wbody")); },
+  onPlayer() { if (W.rec) updateDetailPlayer($("#wbody"), recById(W.rec)); },
+  openUtt(recId, uttId) { openWindow("recs", recId, uttId); },
+  closeDetail() { W.rec = null; W.st = {}; renderWin(); },
+});
+setInterval(() => { const d = new Date(); $("#mb-clock").textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }, 5000);
+renderPop(); renderWin(); aboutButton();
+setTimeout(() => { const next = K.calendar.events.find((e) => e.inMin > 0 && e.inMin <= 5); if (S.phase === "idle" && next) showCutin(next); }, 2500);
+</script>
+</body>
+</html>

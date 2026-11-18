@@ -36,6 +36,15 @@ pub trait SpeechDetector: Send {
 /// Transcribes one window of 16 kHz mono audio. Times in the returned
 /// [`Hypothesis`] are relative to the window.
 pub trait WindowTranscriber: Send {
+    /// Optional offline token/word timing; no change to live decoding.
+    fn word_timing(
+        &mut self,
+        _audio: &[f32],
+        _lang: Option<&str>,
+    ) -> anyhow::Result<Vec<crate::word_timing::Word>> {
+        anyhow::bail!("Word timing is unavailable for this engine. Select an installed Whisper model in Settings.")
+    }
+
     /// `lang` pins the language for this window when known; otherwise the
     /// engine detects it, choosing only among `allowed`.
     fn transcribe(
@@ -94,6 +103,14 @@ fn convert(out: StepOutput) -> AsrStep {
 }
 
 impl<T: WindowTranscriber, V: SpeechDetector> engine::AsrEngine for Windowed<T, V> {
+    fn word_timing(
+        &mut self,
+        audio: &[f32],
+        lang: Option<&str>,
+    ) -> anyhow::Result<Vec<crate::word_timing::Word>> {
+        self.transcriber.word_timing(audio, lang)
+    }
+
     fn cadence(&self) -> Duration {
         Duration::from_millis(1000)
     }

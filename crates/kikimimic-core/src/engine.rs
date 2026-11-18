@@ -11,6 +11,16 @@ use crate::domain::{LaneId, Lang, Pcm16k, Spoken, StreamMs};
 /// Window-based engines (Whisper) get this from [`crate::asr::Windowed`];
 /// natively streaming engines implement it directly.
 pub trait AsrEngine: Send {
+    /// Re-recognition with acoustic token/word estimates, relative to this clip.
+    /// This is not forced alignment of the saved transcript.
+    fn word_timing(
+        &mut self,
+        _audio: &[f32],
+        _lang: Option<&str>,
+    ) -> anyhow::Result<Vec<crate::word_timing::Word>> {
+        anyhow::bail!("Word timing is unavailable for this engine. Select an installed Whisper model in Settings.")
+    }
+
     /// How often `step` is worth calling: ~1 s for a re-decoding window
     /// engine, ~100 ms for a streaming one.
     fn cadence(&self) -> Duration;

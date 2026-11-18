@@ -1,12 +1,18 @@
+mod audio_import;
+
 mod calendar;
 mod captions;
 mod cutin;
 mod downloads;
 mod engines;
+mod evaluation;
+mod evaluation_io;
 mod google;
 mod i18n;
 mod paths;
+mod speakers;
 mod state;
+mod theme;
 mod widgets;
 mod window;
 
