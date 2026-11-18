@@ -22,6 +22,8 @@ The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the sha
 - A glossary that fixes misrecognitions and keeps names intact in translations; with Haas it also helps recognize those words
 - Face-to-face mode: microphone only; opt in to saving audio and transcripts in Settings (off by default). Saved sessions appear in Recordings.
 - Optional recording word timing, click-to-play review and separate subtitle boundaries ([guide](docs/word-timing.md))
+- One window built around a day of meetings: the next calendar meeting and what is still unprocessed on top, every meeting grouped by day on the left (search reaches what was said), audio dropped on the sidebar is imported
+- Export destinations: write each meeting to a folder you choose, under a file-name template and in a format you choose (a Markdown template, SRT or JSON), by hand or when a recording or its minutes are ready. A note vault such as Obsidian is just a folder; a note edited after export is never overwritten
 
 ## Models
 
@@ -73,7 +75,7 @@ Development settings:
 
 ## Recordings
 
-The Recordings view imports WAV, M4A and MP3 with a persistent sequential queue,
+Dropping WAV, M4A or MP3 on the sidebar (or clicking the drop area) imports them with a persistent sequential queue,
 and can join matching WAVs in a user-selected order. See the
 [audio import guide](docs/audio-import.md) for settings, retry and file-level resume.
 
@@ -81,6 +83,8 @@ Each session gets a folder under `~/Music/kikimimic/<yyyyMMddHHmmss>/`:
 
 - `mic.wav`, `speaker.wav`, `mix.wav` — 48 kHz mono 16-bit, same length, same timeline
 - `transcript.jsonl` — confirmed utterances and their translations, one per line
+- `minutes.json` — minutes, once made; every item points at the utterances it is based on
+- `exports.json` — where each export destination last wrote this meeting, and a hash of what it wrote (how a note edited afterwards is recognised)
 
 ```json
 {"type":"utterance","id":1,"lane":"mic","startMs":1200,"endMs":3400,"lang":"ja","text":"こんにちは"}
