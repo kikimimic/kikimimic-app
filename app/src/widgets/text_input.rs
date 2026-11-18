@@ -33,6 +33,8 @@ actions!(
         Paste,
         Cut,
         Copy,
+        Enter,
+        Submit,
     ]
 );
 
@@ -652,6 +654,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(|_: &Enter, _, _| {})
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -713,6 +716,14 @@ impl TextInput {
     }
 }
 
+/// Cmd-Enter on macOS, Ctrl-Enter elsewhere. Spelled out because
+/// `KeyBinding::new` does not resolve the `secondary-` alias.
+pub const SUBMIT_KEYS: &str = if cfg!(target_os = "macos") {
+    "cmd-enter"
+} else {
+    "ctrl-enter"
+};
+
 /// Key bindings for every `TextInput`. Call once at startup.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -729,6 +740,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("home", Home, None),
         KeyBinding::new("end", End, None),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
+        // Swallowed: typed as text, a newline would break the one-line layout.
+        KeyBinding::new("enter", Enter, Some("TextInput")),
+        // Left unhandled here so it bubbles to whoever owns the field.
+        KeyBinding::new(SUBMIT_KEYS, Submit, Some("TextInput")),
     ]);
 }
 
