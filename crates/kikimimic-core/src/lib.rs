@@ -21,6 +21,7 @@ pub mod imports;
 pub mod language;
 pub mod library;
 mod local_agreement;
+pub mod mcp;
 pub mod meeting;
 pub mod meeting_qa;
 pub mod metrics;
