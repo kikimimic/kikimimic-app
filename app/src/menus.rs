@@ -39,7 +39,7 @@ pub fn menus(ui: Ui) -> Vec<Menu> {
     ]
 }
 
-pub fn install(ui: Ui, main: WindowHandle<MainWindow>, cx: &mut App) {
+pub fn install(main: WindowHandle<MainWindow>, cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(move |_: &RecordMeeting, cx| {
         let _ = main.update(cx, |w, _, cx| w.record(SessionMode::Meeting, cx));
@@ -56,6 +56,12 @@ pub fn install(ui: Ui, main: WindowHandle<MainWindow>, cx: &mut App) {
     cx.on_action(move |_: &ToggleCaptions, cx| {
         let _ = main.update(cx, |w, _, cx| w.toggle_captions(cx));
     });
+    if let Ok(ui) = main.read_with(cx, |w, _| w.ui) {
+        relabel(ui, cx);
+    }
+}
+
+pub fn relabel(ui: Ui, cx: &mut App) {
     cx.set_menus(menus(ui));
     cx.set_dock_menu(recording_items(ui));
 }

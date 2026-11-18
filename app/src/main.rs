@@ -105,7 +105,7 @@ fn main() {
             )
             .expect("open the main window");
         calendar.update(cx, |c, _| c.main_window = Some(main.into()));
-        menus::install(i18n::Ui::detect(), main, cx);
+        menus::install(main, cx);
         cx.activate(true);
     });
 }

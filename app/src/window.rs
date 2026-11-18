@@ -98,7 +98,7 @@ pub struct MainWindow {
     post_process_revision: u64,
     /// Where the session screen's right-click menu is open.
     menu: Option<Point<Pixels>>,
-    ui: Ui,
+    pub(crate) ui: Ui,
 }
 
 fn gray() -> Hsla {
@@ -246,7 +246,7 @@ impl MainWindow {
             cx.notify();
         })
         .detach();
-        let ui = Ui::detect();
+        let ui = Ui::new(kkm.settings().ui_language.as_deref());
         let wrong = cx.new(|cx| TextInput::new(ui.misrecognized_as(), cx));
         let right = cx.new(|cx| TextInput::new(ui.correct_spelling(), cx));
         let evaluation = cx.new(crate::evaluation::EvaluationPanel::new);
@@ -374,7 +374,29 @@ impl MainWindow {
         let mut settings = self.kkm.settings();
         change(&mut settings);
         self.error = self.kkm.update_settings(settings).err();
+        let ui = Ui::new(self.kkm.settings().ui_language.as_deref());
+        if ui != self.ui {
+            self.relabel(ui, cx);
+        }
         cx.notify();
+    }
+
+    /// Everything that keeps its wording instead of asking `self.ui` on
+    /// each render: input placeholders and the menus.
+    fn relabel(&mut self, ui: Ui, cx: &mut Context<Self>) {
+        self.ui = ui;
+        for (input, text) in [
+            (&self.wrong, ui.misrecognized_as()),
+            (&self.right, ui.correct_spelling()),
+            (&self.search, ui.search_meetings()),
+            (&self.ask.input, ui.ask_placeholder()),
+        ] {
+            input.update(cx, |i, cx| {
+                i.placeholder = text.into();
+                cx.notify();
+            });
+        }
+        crate::menus::relabel(ui, cx);
     }
 
     /// Start recording from outside the window (the menu bar, the Dock).

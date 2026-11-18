@@ -58,7 +58,7 @@ just         # recipe の一覧
 | `KKM_TRANSLATE_DYLIB` | このビルドの翻訳バックエンドを使う |
 | `KKM_LLM_GPU_LAYERS` | 翻訳モデルを GPU に載せる層数（`0` で CPU） |
 | `KKM_LANG_PIN_THRESHOLD`、`KKM_VAD_*` | Whisper の言語判定と VAD の調整 |
-| `KKM_UI_LANG` | `en` か `ja`。指定しなければ OS の言語に合わせる |
+| `KKM_UI_LANG` | `en` か `ja`。設定 › 一般 › 表示言語 で選んでいないときに使う。どちらもなければ OS の言語に合わせる |
 | `KKM_CALENDAR_DEMO` | `1` で、1分後に始まる架空の会議を足す。サインインしなくても会議のカードを確かめられる |
 | `KKM_GOOGLE_CLIENT_ID`、`KKM_GOOGLE_CLIENT_SECRET` | **ビルド時**に読む、カレンダーのサインイン用の Google OAuth クライアント（種類は Desktop app）。無くてもビルドは通り、設定に「このビルドでは使えません」と出る |
 
