@@ -1,9 +1,11 @@
-//! The main window: session, recordings, models and settings.
+//! The main window: a status bar, the meeting timeline, one screen in a
+//! width-limited column, and a status line (the v4 layout).
 
 mod imports;
 mod live;
 mod recordings;
 mod settings;
+mod shell;
 
 use std::time::Duration;
 
@@ -31,18 +33,30 @@ use crate::widgets::transcript_line;
 
 pub(crate) mod words;
 
+/// The screen in the main column; the timeline beside it is always there.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Session,
-    Recordings,
-    Models,
+enum View {
+    Live,
+    Recording,
+    Imports,
     Settings,
 }
 
 pub struct MainWindow {
     kkm: Kikimimic,
     state: Entity<AppState>,
-    tab: Tab,
+    view: View,
+    /// The mode of the session in progress, for the status bar.
+    live_mode: Option<SessionMode>,
+    search: Entity<TextInput>,
+    /// The query `hits` answer, so a new query starts one search.
+    searched: String,
+    hits: Vec<kikimimic_core::search::Hit>,
+    list_filter: shell::ListFilter,
+    section: settings::Section,
+    show_older: bool,
+    /// What each recording still waits for, keyed by its directory.
+    stages: std::collections::HashMap<std::path::PathBuf, Option<kikimimic_core::timeline::Stage>>,
     scroll: ScrollHandle,
     downloads: Downloads,
     calendar: Entity<Calendar>,
@@ -137,9 +151,7 @@ impl MainWindow {
                 .count();
             if completed != this.imports_completed {
                 this.imports_completed = completed;
-                if this.tab == Tab::Recordings {
-                    this.recordings = library::list(&crate::paths::recordings_dir());
-                }
+                this.refresh_recordings(cx);
             }
             this.scroll.scroll_to_bottom();
             if state.read(cx).is_listening() {
@@ -188,6 +200,8 @@ impl MainWindow {
         let wrong = cx.new(|cx| TextInput::new(ui.misrecognized_as(), cx));
         let right = cx.new(|cx| TextInput::new(ui.correct_spelling(), cx));
         let evaluation = cx.new(crate::evaluation::EvaluationPanel::new);
+        let search = cx.new(|cx| TextInput::new(ui.search_meetings(), cx));
+        cx.observe(&search, |_, _, cx| cx.notify()).detach();
         cx.subscribe(
             &evaluation,
             |this, _, seek: &crate::evaluation::Seek, cx| {
@@ -195,10 +209,18 @@ impl MainWindow {
             },
         )
         .detach();
-        Self {
+        let mut this = Self {
             kkm,
             state,
-            tab: Tab::Session,
+            view: View::Recording,
+            live_mode: None,
+            search,
+            searched: String::new(),
+            hits: Vec::new(),
+            list_filter: shell::ListFilter::All,
+            section: settings::Section::General,
+            show_older: false,
+            stages: Default::default(),
             scroll: ScrollHandle::new(),
             downloads: Downloads::default(),
             calendar,
@@ -217,17 +239,44 @@ impl MainWindow {
             error: None,
             menu: None,
             ui,
-        }
+        };
+        this.refresh_recordings(cx);
+        this
     }
 
-    fn select(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        self.tab = tab;
-        if tab == Tab::Recordings {
-            self.stop_playback();
-            self.sync_word_editor(cx);
-            self.recordings = library::list(&crate::paths::recordings_dir());
-        }
+    fn show(&mut self, view: View, cx: &mut Context<Self>) {
+        self.view = view;
         cx.notify();
+    }
+
+    /// Search what was said once per new query, off the UI thread.
+    fn search_if_changed(&mut self, cx: &mut Context<Self>) {
+        let query = self.search.read(cx).text().trim().to_string();
+        if query == self.searched {
+            return;
+        }
+        self.searched = query.clone();
+        if query.is_empty() {
+            self.hits.clear();
+            return;
+        }
+        let folders: Vec<std::path::PathBuf> = Vec::new();
+        cx.spawn(async move |this, cx| {
+            let base = crate::paths::recordings_dir();
+            let q = query.clone();
+            let hits = cx
+                .background_spawn(async move {
+                    kikimimic_core::search::search(&base, &folders, &q).unwrap_or_default()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.searched == query {
+                    this.hits = hits;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Redraw while downloads run, so their progress moves.
@@ -267,56 +316,30 @@ impl MainWindow {
         if self.kkm.settings().clear_on_start {
             self.state.update(cx, |s, _| s.lines.clear());
         }
+        self.live_mode = Some(mode);
+        self.view = View::Live;
         self.kkm.start_session(mode);
-    }
-
-    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let ui = self.ui;
-        let tabs = [
-            (Tab::Session, "session", ui.tab_session()),
-            (Tab::Recordings, "recordings", ui.tab_recordings()),
-            (Tab::Models, "models", ui.tab_models()),
-            (Tab::Settings, "settings", ui.tab_settings()),
-        ];
-        div()
-            .flex()
-            .gap_2()
-            .items_center()
-            .px_4()
-            .py_2()
-            .border_b_1()
-            .border_color(rgb(0xd0d7de))
-            .child(
-                div()
-                    .font_weight(FontWeight::BOLD)
-                    .mr_4()
-                    .child("Kikimimic"),
-            )
-            .children(tabs.into_iter().map(|(tab, id, label)| {
-                button(id, label, self.tab == tab)
-                    .on_click(cx.listener(move |this, _, _, cx| this.select(tab, cx)))
-            }))
+        cx.notify();
     }
 }
 
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = match self.tab {
-            Tab::Session => self.session(cx),
-            Tab::Recordings => self.recordings_view(cx),
-            Tab::Models => self.models_view(cx),
-            Tab::Settings => self.settings_view(cx),
+        self.search_if_changed(cx);
+        let body = match self.view {
+            View::Live => self.session(cx),
+            View::Recording => self.recordings_view(cx),
+            View::Imports => div()
+                .id("imports")
+                .size_full()
+                .overflow_y_scroll()
+                .child(shell::column().child(self.imports_view(cx)))
+                .into_any_element(),
+            View::Settings => self.settings_view(cx),
         };
-        let mut root = div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .bg(rgb(0xffffff))
-            .text_color(rgb(0x1f2328))
-            .text_size(px(14.))
-            .child(self.header(cx));
+        let mut main = div().flex_1().min_w_0().min_h_0().flex().flex_col();
         if let Some(e) = &self.error {
-            root = root.child(
+            main = main.child(
                 div()
                     .px_4()
                     .py_1()
@@ -325,7 +348,24 @@ impl Render for MainWindow {
                     .child(e.clone()),
             );
         }
-        root.child(div().flex_1().min_h_0().child(body))
+        let main = main.child(div().flex_1().min_h_0().child(body));
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(0xffffff))
+            .text_color(rgb(0x1f2328))
+            .text_size(px(14.))
+            .child(self.top_bar(cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(self.sidebar(cx))
+                    .child(main),
+            )
+            .child(self.footer(cx))
     }
 }
 

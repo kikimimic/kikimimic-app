@@ -42,10 +42,7 @@ macro_rules! texts {
 }
 
 texts! {
-    tab_session: "Session", "セッション";
-    tab_recordings: "Recordings", "録音";
     tab_models: "Models", "モデル";
-    tab_settings: "Settings", "設定";
     stop: "■ Stop", "■ 停止";
     record_meeting: "● Record meeting", "● 会議を録音";
     face_to_face: "Face to face", "対面";
@@ -55,7 +52,6 @@ texts! {
     follow: "Follow", "切り替える";
     stay: "Stay", "そのまま";
     translating: "Translating…", "訳しています…";
-    all_recordings: "← All recordings", "← 録音一覧";
     identifying: "Identifying speakers… (the first run downloads the model)", "話者を判別しています…（初回はモデルをダウンロードします）";
     identify_speakers: "Identify speakers", "話者を判別";
     no_recordings: "No recordings yet.", "まだ録音はありません。";
@@ -94,6 +90,37 @@ texts! {
     record: "Record", "録音を開始";
     dismiss: "Dismiss", "閉じる";
     no_title: "(No title)", "（タイトルなし）";
+    search_meetings: "Search meetings and what was said", "会議と発言を検索";
+    filter_all: "All", "すべて";
+    filter_unfinished: "Unfinished", "未完了";
+    today: "Today", "今日";
+    yesterday: "Yesterday", "昨日";
+    undated: "Undated", "日付なし";
+    stage_transcribe: "Not transcribed", "未文字起こし";
+    stage_speakers: "No speakers", "話者未判別";
+    stage_minutes: "No minutes", "議事録なし";
+    stage_export: "Export pending", "書き出し待ち";
+    drop_audio: "Drop audio here to import", "音声をドロップして取り込む";
+    drop_audio_formats: "WAV / M4A / MP3 · several at once", "WAV / M4A / MP3 · 複数可";
+    import_details: "Details", "詳細";
+    settings_button: "Settings", "設定";
+    show_live: "Show live", "ライブを見る";
+    recording_meeting: "Recording a meeting", "会議を録音中";
+    recording_face: "Recording face to face", "対面で録音中";
+    face_saved: "Face to face: saved", "対面: 保存する";
+    face_not_saved: "Face to face: not saved", "対面: 保存しない";
+    captions_shown: "Captions: on", "字幕: 表示";
+    captions_hidden: "Captions: off", "字幕: 非表示";
+    processed_locally: "Processed on this Mac", "ローカル処理";
+    pick_a_recording: "Pick a meeting on the left, or start recording.", "左の一覧から会議を選ぶか、録音を始めてください。";
+    matches_in_speech: "In what was said", "発言・メモ";
+    no_matches: "No matches", "一致なし";
+    show_older: "Show older meetings", "以前の会議を表示";
+    section_general: "General", "一般";
+    section_link: "Connections", "連携";
+    section_advanced: "Advanced", "詳細";
+    section_recording: "Recording", "録音";
+    saved_automatically: "Changes are saved automatically", "変更は自動で保存";
 }
 
 impl Ui {
@@ -213,11 +240,37 @@ impl Ui {
             Self::Ja => format!("翻訳を使えません: {reason}"),
         }
     }
+}
 
-    pub fn recording_summary(self, duration: &str, lines: usize, snippet: &str) -> String {
+impl Ui {
+    pub fn day(self, month: u32, day: u32, weekday: u32) -> String {
+        const JA: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
+        const EN: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let w = weekday as usize % 7;
         match self {
-            Self::En => format!("{duration} · {lines} lines · {snippet}"),
-            Self::Ja => format!("{duration} · {lines}行 · {snippet}"),
+            Self::En => format!("{} {month}/{day}", EN[w]),
+            Self::Ja => format!("{month}/{day}（{}）", JA[w]),
+        }
+    }
+
+    pub fn next_meeting(self, title: &str, at: &str) -> String {
+        match self {
+            Self::En => format!("Next: {title} at {at}"),
+            Self::Ja => format!("次: {title}  {at}"),
+        }
+    }
+
+    pub fn unfinished_count(self, n: usize) -> String {
+        match self {
+            Self::En => format!("{n} unfinished"),
+            Self::Ja => format!("後処理待ち {n}"),
+        }
+    }
+
+    pub fn importing(self, n: usize) -> String {
+        match self {
+            Self::En => format!("Importing {n}"),
+            Self::Ja => format!("取り込み {n}"),
         }
     }
 }

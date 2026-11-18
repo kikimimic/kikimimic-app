@@ -20,7 +20,7 @@ struct Metadata {
 }
 
 /// One recorded session, as the library list needs it.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Recording {
     /// Directory name — `20260819090503`, or `…-2` for a restart within the

@@ -42,8 +42,18 @@ fn settings_summary(ui: Ui, settings: &kikimimic_core::settings::Settings) -> St
     )
 }
 
+pub(super) fn state_text(ui: Ui, state: &ImportState) -> &'static str {
+    match state {
+        ImportState::Pending => text(ui, "Waiting", "待機"),
+        ImportState::Running => text(ui, "Running", "実行中"),
+        ImportState::Done => text(ui, "Done", "完了"),
+        ImportState::Skipped => text(ui, "Skipped", "スキップ"),
+        ImportState::Failed { .. } => text(ui, "Failed", "失敗"),
+    }
+}
+
 impl MainWindow {
-    fn pick_import(&mut self, join: bool, cx: &mut Context<Self>) {
+    pub(super) fn pick_import(&mut self, join: bool, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,

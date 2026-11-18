@@ -1,20 +1,23 @@
-//! Settings, models and the Google Calendar connection.
+//! Settings: one screen, a row of sections, every change saved at once.
 
 use super::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Section {
+    #[default]
+    General,
+    Glossary,
+    Link,
+    Models,
+    Advanced,
+}
 
 impl MainWindow {
     pub(super) fn models_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
         let store = self.kkm.models().clone();
         let settings = self.kkm.settings();
-        let mut col = div()
-            .id("models")
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .size_full()
-            .overflow_y_scroll();
+        let mut col = div().flex().flex_col().gap_3();
         for (i, m) in store.catalog().models().iter().enumerate() {
             if m.kind == ModelKind::Vad || !crate::engines::runs_here(m) {
                 continue;
@@ -94,6 +97,64 @@ impl MainWindow {
 
     pub(super) fn settings_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;
+        let mut tabs = div().flex().gap_1();
+        for (section, id, label) in [
+            (Section::General, "set-general", ui.section_general()),
+            (Section::Glossary, "set-glossary", ui.glossary()),
+            (Section::Link, "set-link", ui.section_link()),
+            (Section::Models, "set-models", ui.tab_models()),
+            (Section::Advanced, "set-advanced", ui.section_advanced()),
+        ] {
+            tabs = tabs.child(
+                button(id, label, self.section == section).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.section = section;
+                        cx.notify();
+                    },
+                )),
+            );
+        }
+        let body = match self.section {
+            Section::General => self.general_section(cx).into_any_element(),
+            Section::Glossary => self.glossary_section(cx).into_any_element(),
+            Section::Link => self.calendar_section(cx).into_any_element(),
+            Section::Models => self.models_view(cx),
+            Section::Advanced => self.evaluation.clone().into_any_element(),
+        };
+        div()
+            .id("settings")
+            .size_full()
+            .overflow_y_scroll()
+            .child(
+                super::shell::column()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .pb_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(18.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(ui.settings_button()),
+                            )
+                            .child(tabs)
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(gray())
+                                    .child(ui.saved_automatically()),
+                            ),
+                    )
+                    .child(body),
+            )
+            .into_any_element()
+    }
+
+    fn general_section(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let ui = self.ui;
         let settings = self.kkm.settings();
         let policy = settings.languages.clone();
         let spoken: Vec<String> = policy
@@ -101,14 +162,7 @@ impl MainWindow {
             .iter()
             .map(|l| l.as_str().to_string())
             .collect();
-        let mut col = div()
-            .id("settings")
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .size_full()
-            .overflow_y_scroll();
+        let mut col = div().flex().flex_col().gap_3();
 
         col = col.child(
             div()
@@ -229,6 +283,37 @@ impl MainWindow {
         }
         col = col.child(row);
 
+        col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(ui.section_recording()),
+        )
+        .child(
+            button(
+                "clear-on-start",
+                ui.clear_on_start(),
+                settings.clear_on_start,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
+            })),
+        )
+        .child(
+            button(
+                "save-face",
+                ui.save_face_to_face(),
+                settings.save_face_to_face,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.update_settings(|s| s.save_face_to_face = !s.save_face_to_face, cx)
+            })),
+        )
+    }
+
+    fn glossary_section(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let ui = self.ui;
+        let settings = self.kkm.settings();
+        let mut col = div().flex().flex_col().gap_3();
         col = col
             .child(div().font_weight(FontWeight::SEMIBOLD).child(ui.glossary()))
             .child(
@@ -284,24 +369,7 @@ impl MainWindow {
                     ),
             );
         }
-        col = col.child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(ui.tab_session()),
-        );
-        col = col.child(
-            button(
-                "clear-on-start",
-                ui.clear_on_start(),
-                settings.clear_on_start,
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.update_settings(|s| s.clear_on_start = !s.clear_on_start, cx)
-            })),
-        );
-        col.child(self.calendar_section(cx))
-            .child(self.evaluation.clone())
-            .into_any_element()
+        col
     }
 
     pub(super) fn calendar_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
