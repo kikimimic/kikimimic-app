@@ -65,6 +65,12 @@ pub struct MainWindow {
     detail: detail::DetailCache,
     ask: ask::AskState,
     advice: live::Advice,
+    /// Automatic recording of calendar meetings (#35), and whether the
+    /// session in progress is one it started.
+    policy: kikimimic_core::meeting::MeetingPolicy,
+    auto_session: bool,
+    /// The policy counts monotonic seconds from here.
+    started_at: std::time::Instant,
     /// How an agent is called; tests put a fake here.
     run_agent: fn(kikimimic_core::agent::Agent, &str) -> anyhow::Result<String>,
     dest_selected: usize,
@@ -157,6 +163,8 @@ impl MainWindow {
             let running = matches!(state.read(cx).phase, Phase::Listening | Phase::Stopping);
             if this.was_running && !running {
                 this.live_mode = None;
+                this.policy.stopped(false);
+                this.auto_session = false;
                 if let Some(dir) = state.read(cx).recording_dir.clone() {
                     this.auto_export(dir, kikimimic_core::destinations::When::AfterRecording, cx);
                 }
@@ -267,6 +275,9 @@ impl MainWindow {
             detail: Default::default(),
             ask: ask::AskState::new(ui, cx),
             advice: Default::default(),
+            policy: Default::default(),
+            auto_session: false,
+            started_at: std::time::Instant::now(),
             run_agent: kikimimic_core::agent::run,
             dest_selected: 0,
             dest_name: cx.new(|cx| TextInput::new("", cx)),
@@ -295,6 +306,7 @@ impl MainWindow {
         };
         this.refresh_recordings(cx);
         this.load_destination_fields(cx);
+        this.watch_calendar_meetings(cx);
         this
     }
 
@@ -365,7 +377,62 @@ impl MainWindow {
         cx.notify();
     }
 
+    /// A recording the user started: automatic recording leaves it alone.
     fn start(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        self.policy.manual_started();
+        self.begin(mode, cx);
+    }
+
+    /// Stopped by the user: an automatic recording does not come back for
+    /// the same meeting.
+    fn stop_by_user(&mut self, cx: &mut Context<Self>) {
+        self.policy.stopped(true);
+        self.auto_session = false;
+        self.kkm.stop_session();
+        cx.notify();
+    }
+
+    /// One step of automatic recording: `present` is whether a calendar
+    /// meeting is in progress, `now` monotonic seconds.
+    fn auto_record_tick(&mut self, present: bool, now: u64, cx: &mut Context<Self>) {
+        use kikimimic_core::meeting::Action;
+        self.policy.enabled = self.kkm.settings().auto_record;
+        // A session started elsewhere (the calendar card) counts as manual,
+        // so the policy never starts a second one beside it.
+        if self.state.read(cx).is_listening() && !self.auto_session {
+            self.policy.manual_started();
+        }
+        match self.policy.poll(present, now) {
+            Some(Action::Start) => {
+                self.auto_session = true;
+                self.begin(SessionMode::Meeting, cx);
+            }
+            Some(Action::Stop) => {
+                self.auto_session = false;
+                self.kkm.stop_session();
+            }
+            None => {}
+        }
+        cx.notify();
+    }
+
+    fn watch_calendar_meetings(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+                let Ok(()) = this.update(cx, |this, cx| {
+                    let present = this.calendar.read(cx).in_meeting(chrono::Utc::now());
+                    let now = this.started_at.elapsed().as_secs();
+                    this.auto_record_tick(present, now, cx);
+                }) else {
+                    return;
+                };
+            }
+        })
+        .detach();
+    }
+
+    fn begin(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
         self.stop_playback();
         if self.kkm.settings().clear_on_start {
             self.state.update(cx, |s, _| s.lines.clear());

@@ -135,6 +135,14 @@ impl MainWindow {
                         }),
                 );
             }
+            if self.auto_session {
+                left = left.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(ui.started_automatically()),
+                );
+            }
             if self.view != View::Live {
                 left = left.child(
                     button("show-live", ui.show_live(), false)
@@ -222,7 +230,7 @@ impl MainWindow {
             record = record.child(
                 button("stop", ui.stop(), true)
                     .flex_1()
-                    .on_click(cx.listener(|this, _, _, _| this.kkm.stop_session())),
+                    .on_click(cx.listener(|this, _, _, cx| this.stop_by_user(cx))),
             );
         } else if !busy {
             record = record
@@ -628,6 +636,20 @@ impl MainWindow {
                         }
                         cx.notify();
                     }
+                })),
+            )
+            .child(
+                item(
+                    "footer-auto",
+                    if settings.auto_record {
+                        ui.auto_record_on()
+                    } else {
+                        ui.auto_record_off()
+                    }
+                    .into(),
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.update_settings(|s| s.auto_record = !s.auto_record, cx)
                 })),
             )
             .child(div().flex_1())

@@ -308,6 +308,17 @@ impl MainWindow {
             })),
         )
         .child(
+            button("auto-record", ui.auto_record_on(), settings.auto_record).on_click(cx.listener(
+                |this, _, _, cx| this.update_settings(|s| s.auto_record = !s.auto_record, cx),
+            )),
+        )
+        .child(
+            div()
+                .text_size(px(12.))
+                .text_color(gray())
+                .child(ui.auto_record_help()),
+        )
+        .child(
             button(
                 "save-face",
                 ui.save_face_to_face(),

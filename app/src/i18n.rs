@@ -171,6 +171,10 @@ texts! {
     live_title: "Live", "ライブ";
     tab_ask: "Ask", "質問";
     advisor: "Advisor", "アドバイザー";
+    started_automatically: "Started automatically", "自動で開始";
+    auto_record_on: "Auto-record: on", "自動録音: オン";
+    auto_record_off: "Auto-record: off", "自動録音: オフ";
+    auto_record_help: "Record calendar meetings by themselves: start when one begins, stop a minute after it ends. A meeting you stop yourself is not restarted.", "カレンダーの会議を自動で録音します。始まったら録音し、終わって 1 分たったら止めます。自分で止めた会議は再開しません。";
     stop_advisor: "Stop advisor", "アドバイザーを停止";
     no_advice: "Nothing to point out right now.", "いま出せる助言はありません。";
     advice_follow_up: "Follow-up", "持ち帰り";

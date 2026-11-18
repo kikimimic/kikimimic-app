@@ -300,6 +300,11 @@ impl Calendar {
     }
 
     /// The card is gone; its meetings do not come back.
+    pub fn in_meeting(&self, now: DateTime<Utc>) -> bool {
+        let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
+        ongoing(&all, now)
+    }
+
     pub fn next_meeting(&self, now: DateTime<Utc>) -> Option<Meeting> {
         let all: Vec<Meeting> = self.meetings.iter().chain(&self.demo).cloned().collect();
         next(&all, now).cloned()
@@ -455,6 +460,11 @@ pub fn next(meetings: &[Meeting], now: DateTime<Utc>) -> Option<&Meeting> {
         .min_by_key(|m| m.start)
 }
 
+/// Whether a meeting is in progress: the signal automatic recording uses.
+pub fn ongoing(meetings: &[Meeting], now: DateTime<Utc>) -> bool {
+    meetings.iter().any(|m| m.start <= now && now < m.end)
+}
+
 /// Meetings whose card should be showing: from `LEAD` before the start until
 /// `GRACE` after it, or the end if that comes first.
 pub fn due(meetings: &[Meeting], now: DateTime<Utc>, dismissed: &HashSet<String>) -> Vec<Meeting> {
@@ -494,6 +504,12 @@ mod tests {
             Some("later")
         );
         assert_eq!(next(&meetings, at(16)), None);
+        assert!(ongoing(&meetings, at(10)));
+        assert!(
+            !ongoing(&meetings, at(12)),
+            "between meetings nothing is on"
+        );
+        assert!(!ongoing(&meetings, at(11)), "a meeting is over at its end");
     }
 
     fn events(items: &str) -> String {
