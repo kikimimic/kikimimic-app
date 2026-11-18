@@ -94,6 +94,18 @@ pub fn defaults() -> Vec<Destination> {
     }]
 }
 
+/// The destinations that write by themselves when `when` happens.
+pub fn triggered(dests: &[Destination], when: When) -> Vec<Destination> {
+    if when == When::Manual {
+        return Vec::new();
+    }
+    dests
+        .iter()
+        .filter(|d| d.enabled && d.when == when)
+        .cloned()
+        .collect()
+}
+
 /// Fill `{{name}}` placeholders; unknown names stay as they are so a typo is
 /// visible in the output instead of silently vanishing.
 pub fn fill(template: &str, vars: &BTreeMap<&str, String>) -> String {
@@ -320,11 +332,23 @@ pub fn write(
     }
     let text = render(dest, session, minutes);
     let target = path(dest, session, home);
+    let mut record = load(recording_dir);
+    // Only ever replace what this recording wrote there itself: a note the
+    // user edited afterwards, or someone else's file, stays as it is.
+    if let Ok(existing) = std::fs::read_to_string(&target) {
+        let ours = record
+            .get(&dest.id)
+            .is_some_and(|w| w.path == target && w.sha256 == digest(&existing));
+        anyhow::ensure!(
+            ours,
+            "{} はほかで作成・編集されているため上書きしません",
+            target.display()
+        );
+    }
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&target, &text)?;
-    let mut record = load(recording_dir);
     record.insert(
         dest.id.clone(),
         Written {
@@ -538,6 +562,60 @@ mod tests {
         assert!(write(&d, &session(), None, &rec, &home).is_err());
         assert_eq!(state(&d, &session(), None, &rec), ExportState::NotWritten);
         std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn a_note_edited_or_written_by_someone_else_is_never_overwritten() {
+        let tmp = std::env::temp_dir().join(format!("kkm-dest-clobber-{}", std::process::id()));
+        let (rec, home) = (tmp.join("rec"), tmp.join("home"));
+        std::fs::create_dir_all(&rec).unwrap();
+        let mut d = dest(Format::Template, "{{transcript}}");
+        d.folder = home.join("notes").display().to_string();
+        let mut s = session();
+        // Someone else's file under the same name.
+        let target = path(&d, &s, &home);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "my own note").unwrap();
+        assert!(write(&d, &s, None, &rec, &home).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "my own note");
+        // Ours, then edited in the vault: a re-export must not undo the edit.
+        std::fs::remove_file(&target).unwrap();
+        write(&d, &s, None, &rec, &home).unwrap();
+        s.lines[0].text = "始めましょう。".into();
+        write(&d, &s, None, &rec, &home).unwrap();
+        std::fs::write(&target, "edited in the vault").unwrap();
+        s.lines[0].text = "では始めます。".into();
+        assert!(write(&d, &s, None, &rec, &home).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "edited in the vault"
+        );
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn a_trigger_picks_only_enabled_destinations_waiting_for_it() {
+        let mut a = dest(Format::Template, "");
+        a.when = When::AfterRecording;
+        let mut b = a.clone();
+        b.id = "off".into();
+        b.enabled = false;
+        let mut c = a.clone();
+        c.id = "minutes".into();
+        c.when = When::AfterMinutes;
+        let all = [a, b, c];
+        let ids = |w| {
+            triggered(&all, w)
+                .iter()
+                .map(|d| d.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(When::AfterRecording), ["notes"]);
+        assert_eq!(ids(When::AfterMinutes), ["minutes"]);
+        assert!(
+            ids(When::Manual).is_empty(),
+            "manual destinations never write by themselves"
+        );
     }
 
     #[test]

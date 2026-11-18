@@ -246,7 +246,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kkm-timeline-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("postprocess")).unwrap();
         let minutes = Minutes { items: vec![] };
-        let dests = [auto_dest()];
+        let mut dest = auto_dest();
+        dest.folder = dir.join("notes").display().to_string();
+        let dests = [dest];
         assert_eq!(
             next_stage(&session(0), &dir, None, &dests),
             Some(Stage::Transcribe)
@@ -268,7 +270,7 @@ mod tests {
         crate::destinations::write(&dests[0], &session(2), Some(&minutes), &dir, &home).unwrap();
         assert_eq!(next_stage(&session(2), &dir, Some(&minutes), &dests), None);
         // A manual or disabled destination is never pending.
-        let mut manual = auto_dest();
+        let mut manual = dests[0].clone();
         manual.id = "manual".into();
         manual.when = When::Manual;
         assert_eq!(
