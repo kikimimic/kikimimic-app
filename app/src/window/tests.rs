@@ -391,3 +391,31 @@ fn a_recording_started_from_the_calendar_card_is_not_doubled(cx: &mut TestAppCon
     window.update(cx, |w, cx| w.auto_record_tick(true, 0, cx));
     window.read_with(cx, |w, _| assert!(!w.auto_session));
 }
+
+#[gpui::test]
+fn a_recording_right_clicked_in_the_timeline_goes_to_the_trash(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let trash = fixture.0.join("Trash");
+    unsafe { std::env::set_var("KKM_TRASH_DIR", &trash) };
+    let (_window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state, calendar, cx)
+    });
+    cx.run_until_parked();
+    click(cx, "timeline-20261117100000");
+
+    let row = cx.debug_bounds("timeline-20261117100000").unwrap();
+    cx.simulate_mouse_down(row.center(), MouseButton::Right, Default::default());
+    cx.run_until_parked();
+    click(cx, "timeline-trash");
+
+    assert!(!fixture.0.join("recordings/20261117100000").exists());
+    assert!(trash.join("20261117100000/transcript.jsonl").exists());
+    assert!(cx.debug_bounds("timeline-20261117100000").is_none());
+    assert!(
+        cx.debug_bounds("detail-player").is_none(),
+        "the trashed recording no longer stays open"
+    );
+}

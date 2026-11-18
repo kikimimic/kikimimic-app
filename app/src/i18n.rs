@@ -92,6 +92,7 @@ texts! {
     clear_on_start: "Clear the screen when a recording starts (otherwise right-click to clear)", "録音開始時に画面をクリアする（オフのときは右クリックでクリア）";
     add: "Add", "追加";
     remove: "Remove", "削除";
+    move_to_trash: "Move to Trash", "ゴミ箱に入れる";
     system_audio_silent: "System audio is silent. Allow Kikimimic in System Settings > Privacy & Security > Screen & System Audio Recording.", "システム音声が無音です。システム設定 > プライバシーとセキュリティ > 画面とシステムオーディオ録音 で Kikimimic を許可してください。";
     google_calendar: "Google Calendar", "Google カレンダー";
     calendar_description: "Shortly before a meeting starts, a card appears at the top of the screen so you can start recording in one click. Only your calendar is read; audio and transcripts never leave your computer.", "会議が始まる直前に画面の上にカードを出し、ワンクリックで録音を始められます。読むのはカレンダーだけで、音声と文字起こしは外に出ません。";

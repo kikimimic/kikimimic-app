@@ -98,6 +98,8 @@ pub struct MainWindow {
     post_process_revision: u64,
     /// Where the session screen's right-click menu is open.
     menu: Option<Point<Pixels>>,
+    /// The recording the timeline's right-click menu is open for, and where.
+    timeline_menu: Option<(std::path::PathBuf, Point<Pixels>)>,
     pub(crate) ui: Ui,
 }
 
@@ -302,6 +304,7 @@ impl MainWindow {
             right,
             error: None,
             menu: None,
+            timeline_menu: None,
             ui,
         };
         this.refresh_recordings(cx);

@@ -134,4 +134,37 @@ impl MainWindow {
         }
         cx.notify();
     }
+
+    /// Move a recording to the Trash, where Finder can still bring it back.
+    /// The one being recorded stays: its files are still being written.
+    pub(super) fn trash_recording(&mut self, dir: std::path::PathBuf, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        if state.is_listening() && state.recording_dir.as_ref() == Some(&dir) {
+            self.error = Some("Stop recording before moving it to the Trash".into());
+            cx.notify();
+            return;
+        }
+        let Some(name) = dir.file_name() else { return };
+        let trash = crate::paths::trash_dir();
+        // ponytail: a rename, so a recordings folder on another volume than
+        // the Trash fails with an error; use NSFileManager.trashItem if it shows.
+        let moved =
+            std::fs::create_dir_all(&trash).and_then(|()| std::fs::rename(&dir, trash.join(name)));
+        if let Err(e) = moved {
+            self.error = Some(format!("{e:#}"));
+            cx.notify();
+            return;
+        }
+        if self
+            .open_recording
+            .as_ref()
+            .is_some_and(|(open, _)| open == &dir)
+        {
+            self.stop_playback();
+            self.open_recording = None;
+            self.speaker_editor = None;
+            self.view = View::Live;
+        }
+        self.refresh_recordings(cx);
+    }
 }

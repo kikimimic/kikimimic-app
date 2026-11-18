@@ -27,6 +27,17 @@ pub fn recordings_dir() -> PathBuf {
         })
 }
 
+/// Where deleted recordings go: the user's Trash, or `KKM_TRASH_DIR`.
+pub fn trash_dir() -> PathBuf {
+    std::env::var_os("KKM_TRASH_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join(".Trash")
+        })
+}
+
 /// Extra places to find model files, e.g. a checkout's `models/`
 /// (`KKM_MODELS_DIR`, several separated like PATH).
 pub fn extra_model_dirs() -> Vec<PathBuf> {
