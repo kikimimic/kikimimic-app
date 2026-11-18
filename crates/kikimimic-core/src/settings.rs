@@ -29,6 +29,9 @@ pub struct Settings {
     /// because choosing one is choosing to send transcripts to its company.
     #[serde(default)]
     pub agent: Option<crate::agent::Agent>,
+    /// Record calendar meetings by themselves (meeting::MeetingPolicy).
+    #[serde(default)]
+    pub auto_record: bool,
 }
 
 impl Settings {
@@ -42,6 +45,7 @@ impl Settings {
             save_face_to_face: false,
             destinations: crate::destinations::defaults(),
             agent: None,
+            auto_record: false,
         }
     }
 
@@ -111,6 +115,18 @@ mod tests {
         let p = path("roundtrip");
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p, c), s);
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn automatic_recording_is_off_until_turned_on() {
+        let c = Catalog::builtin();
+        assert!(!Settings::defaults(c).auto_record);
+        let p = path("auto");
+        let mut s = Settings::defaults(c);
+        s.auto_record = true;
+        s.save(&p).unwrap();
+        assert!(Settings::load(&p, c).auto_record);
         std::fs::remove_file(p).unwrap();
     }
 
