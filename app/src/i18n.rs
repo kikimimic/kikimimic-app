@@ -169,6 +169,24 @@ texts! {
     lane_me: "Me", "自分";
     lane_them: "Them", "相手";
     live_title: "Live", "ライブ";
+    tab_ask: "Ask", "質問";
+    ask: "Ask", "聞く";
+    ask_placeholder: "Ask about this meeting…", "この会議について質問…";
+    asking: "Asking…", "問い合わせ中…";
+    unconfirmed_answer: "The transcript does not back an answer, so none is given.", "文字起こしに根拠が見つからないため、答えを確定できません。";
+    choose_agent_first: "Choose Claude Code or Codex in Settings › Connections first.", "先に 設定 › 連携 で Claude Code か Codex を選んでください。";
+    sends_transcript_and_question: "What is sent: this meeting's transcript (originals only) and your question. Not sent: audio, translations, other meetings.", "送るもの: この会議の文字起こし（原文のみ）と質問。送らないもの: 音声、訳文、ほかの会議。";
+    sends_transcript: "What is sent: this meeting's transcript (originals only). Not sent: audio, translations, other meetings.", "送るもの: この会議の文字起こし（原文のみ）。送らないもの: 音声、訳文、ほかの会議。";
+    send: "Send", "送る";
+    dont_send: "Don't send", "送らない";
+    make_minutes: "Make minutes", "議事録を作る";
+    remake_minutes: "Make again", "作り直す";
+    making_minutes: "Making minutes…", "議事録を作っています…";
+    minutes_from_transcript: "Every item links to what it is based on; owners and deadlines appear only if someone said them.", "各項目は根拠の発言につながっています。担当と期限は、発言にあったときだけ入ります。";
+    agents: "Coding agent", "エージェント";
+    agents_help: "Questions and minutes go to the agent you choose, through its command-line tool you are signed in to. It sends the meeting's transcript to its company; you confirm before the first time each run.", "質問と議事録は、選んだエージェントに、サインイン済みのコマンドラインツール経由で送ります。会議の文字起こしがその会社に送られるため、起動ごとに最初の 1 回は送る前に確認します。";
+    mcp_title: "Let agents read meetings (MCP)", "エージェントから会議を読む（MCP）";
+    mcp_help: "Register Kikimimic once and a Claude Code or Codex session in your terminal can list, search and read meetings — including the one being recorded. Read-only.", "一度登録すると、ターミナルの Claude Code や Codex から会議の一覧・検索・文字起こし（録音中の会議も）を読めます。読み取り専用です。";
 }
 
 impl Ui {
@@ -291,6 +309,24 @@ impl Ui {
 }
 
 impl Ui {
+    pub fn send_to(self, agent: &str, company: &str) -> String {
+        match self {
+            Self::En => format!("Send to {agent} ({company})?"),
+            Self::Ja => format!("{agent}（{company}）に送ります。"),
+        }
+    }
+
+    pub fn answers_from(self, agent: &str) -> String {
+        match self {
+            Self::En => format!(
+                "Answered by {agent}, quoting the transcript. Unbacked answers are not shown."
+            ),
+            Self::Ja => {
+                format!("{agent} が文字起こしを引用して答えます。根拠のない答えは表示しません。")
+            }
+        }
+    }
+
     pub fn speech_share(self, percent: f64) -> String {
         match self {
             Self::En => format!("{percent:.0}% of speech"),

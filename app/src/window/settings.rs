@@ -120,7 +120,13 @@ impl MainWindow {
             Section::General => self.general_section(cx).into_any_element(),
             Section::Glossary => self.glossary_section(cx).into_any_element(),
             Section::Export => self.export_section(cx).into_any_element(),
-            Section::Link => self.calendar_section(cx).into_any_element(),
+            Section::Link => div()
+                .flex()
+                .flex_col()
+                .gap_6()
+                .child(self.agent_section(cx))
+                .child(self.calendar_section(cx))
+                .into_any_element(),
             Section::Models => self.models_view(cx),
             Section::Advanced => self.evaluation.clone().into_any_element(),
         };
@@ -609,6 +615,63 @@ impl MainWindow {
                 )));
         }
         col.child(editor)
+    }
+
+    fn agent_section(&self, cx: &mut Context<Self>) -> gpui::Div {
+        use kikimimic_core::agent::Agent;
+        let ui = self.ui;
+        let chosen = self.kkm.settings().agent;
+        let mut choices =
+            div()
+                .flex()
+                .gap_1()
+                .child(button("agent-none", ui.none(), chosen.is_none()).on_click(
+                    cx.listener(|this, _, _, cx| this.update_settings(|s| s.agent = None, cx)),
+                ));
+        for (i, agent) in Agent::ALL.into_iter().enumerate() {
+            choices = choices.child(
+                button(("agent", i), agent.name(), chosen == Some(agent)).on_click(cx.listener(
+                    move |this, _, _, cx| this.update_settings(|s| s.agent = Some(agent), cx),
+                )),
+            );
+        }
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "/Applications/Kikimimic.app/Contents/MacOS/kikimimic".into());
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(ui.agents()))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(ui.agents_help()),
+            )
+            .child(choices)
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .pt_2()
+                    .child(ui.mcp_title()),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(gray())
+                    .child(ui.mcp_help()),
+            )
+            .child(
+                div()
+                    .p_2()
+                    .rounded(px(6.))
+                    .bg(rgb(0xf6f8fa))
+                    .text_size(px(12.))
+                    .font_family("Menlo")
+                    .child(format!("claude mcp add kikimimic -- \"{exe}\" mcp"))
+                    .child(format!("codex mcp add kikimimic -- \"{exe}\" mcp")),
+            )
     }
 
     fn glossary_section(&self, cx: &mut Context<Self>) -> gpui::Div {

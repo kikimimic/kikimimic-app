@@ -131,7 +131,8 @@ impl MainWindow {
             }
             row
         });
-        col.child(
+        let ask = state.recording_dir.clone().filter(|_| state.is_listening());
+        let col = col.child(
             div()
                 .id("transcript")
                 .flex()
@@ -140,7 +141,18 @@ impl MainWindow {
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll)
                 .children(lines),
-        )
-        .into_any_element()
+        );
+        match ask {
+            Some(dir) => col
+                .child(
+                    div()
+                        .pt_2()
+                        .border_t_1()
+                        .border_color(rgb(0xd0d7de))
+                        .child(self.ask_panel(&dir, cx)),
+                )
+                .into_any_element(),
+            None => col.into_any_element(),
+        }
     }
 }
