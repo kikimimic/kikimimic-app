@@ -106,3 +106,32 @@ fn a_meeting_opens_from_the_timeline_and_writes_to_its_destination(cx: &mut Test
     assert!(text.contains("**自分**: 定例を始めます"));
     assert!(text.contains("**相手**: よろしくお願いします"));
 }
+
+#[gpui::test]
+fn a_finished_recording_is_written_to_destinations_waiting_for_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let mut settings = kkm.settings();
+    settings.destinations[0].when = kikimimic_core::destinations::When::AfterRecording;
+    kkm.update_settings(settings).unwrap();
+    let state = cx.new(|_| AppState::default());
+    let (_window, cx) = cx.add_window_view(|_, cx| {
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
+    });
+    cx.run_until_parked();
+    let note = fixture.0.join("notes").join("2026-11-17 20261117100000.md");
+    assert!(!note.exists(), "nothing is written before a recording ends");
+
+    let dir = fixture.0.join("recordings").join("20261117100000");
+    for phase in [Phase::Listening, Phase::Stopping, Phase::Idle] {
+        let dir = dir.clone();
+        state.update(cx, |s, cx| {
+            s.phase = phase;
+            s.recording_dir = Some(dir);
+            cx.notify();
+        });
+        cx.run_until_parked();
+    }
+    assert!(std::fs::read_to_string(&note).unwrap().contains("定例を始めます"));
+}

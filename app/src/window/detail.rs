@@ -131,6 +131,42 @@ impl MainWindow {
         self.write_destinations(dir, dests, cx);
     }
 
+    /// Write the destinations waiting for `when`, off the UI thread.
+    pub(super) fn auto_export(
+        &mut self,
+        dir: PathBuf,
+        when: destinations::When,
+        cx: &mut Context<Self>,
+    ) {
+        let dests = destinations::triggered(&self.kkm.settings().destinations, when);
+        if dests.is_empty() {
+            return;
+        }
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let session = library::read(&dir)?;
+                    let minutes = kikimimic_core::minutes::load(&dir)?;
+                    for d in &dests {
+                        destinations::write(d, &session, minutes.as_ref(), &dir, &home)?;
+                    }
+                    anyhow::Ok(())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.error = Some(format!("{e:#}"));
+                }
+                this.refresh_detail(cx);
+                this.refresh_recordings(cx);
+            });
+        })
+        .detach();
+    }
+
     fn write_destinations(
         &mut self,
         dir: PathBuf,

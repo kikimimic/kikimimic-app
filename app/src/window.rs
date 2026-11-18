@@ -54,6 +54,10 @@ pub struct MainWindow {
     searched: String,
     hits: Vec<kikimimic_core::search::Hit>,
     list_filter: shell::ListFilter,
+    /// Whether a session was running at the last state change.
+    was_running: bool,
+    /// Import jobs seen waiting or running in this run.
+    imports_watched: std::collections::HashSet<u64>,
     section: settings::Section,
     detail_tab: detail::DetailTab,
     detail: detail::DetailCache,
@@ -143,6 +147,31 @@ impl MainWindow {
     ) -> Self {
         cx.observe(&calendar, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |this: &mut Self, state, cx| {
+            // A session that just ended is a finished recording.
+            let running = matches!(state.read(cx).phase, Phase::Listening | Phase::Stopping);
+            if this.was_running && !running {
+                this.live_mode = None;
+                if let Some(dir) = state.read(cx).recording_dir.clone() {
+                    this.auto_export(dir, kikimimic_core::destinations::When::AfterRecording, cx);
+                }
+                this.refresh_recordings(cx);
+            }
+            this.was_running = running;
+            // So is an import that finished while we watched. Jobs already
+            // done when the app started were handled by the run that did them.
+            let jobs = state.read(cx).imports.jobs.clone();
+            for job in &jobs {
+                match (&job.state, &job.output) {
+                    (kikimimic_core::imports::ImportState::Pending | kikimimic_core::imports::ImportState::Running, _) => {
+                        this.imports_watched.insert(job.id);
+                    }
+                    (kikimimic_core::imports::ImportState::Done, Some(dir)) if this.imports_watched.remove(&job.id) => {
+                        let dir = dir.clone();
+                        this.auto_export(dir, kikimimic_core::destinations::When::AfterRecording, cx);
+                    }
+                    _ => {}
+                }
+            }
             let completed = state
                 .read(cx)
                 .imports
@@ -225,6 +254,8 @@ impl MainWindow {
             searched: String::new(),
             hits: Vec::new(),
             list_filter: shell::ListFilter::All,
+            was_running: false,
+            imports_watched: Default::default(),
             section: settings::Section::General,
             detail_tab: detail::DetailTab::Text,
             detail: Default::default(),
