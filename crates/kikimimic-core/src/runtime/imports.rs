@@ -6,7 +6,7 @@ pub(super) enum ImportCommand {
     Add {
         inputs: Vec<PathBuf>,
         mode: ImportMode,
-        settings: Settings,
+        settings: Box<Settings>,
     },
     Resume {
         retry_failed: bool,
@@ -26,7 +26,7 @@ impl Kikimimic {
             ImportCommand::Add {
                 inputs,
                 mode,
-                settings: self.settings(),
+                settings: Box::new(self.settings()),
             },
             decoder,
         ));
@@ -62,7 +62,7 @@ impl Shell {
                 inputs,
                 mode,
                 settings,
-            } => q.add(inputs, mode, settings, (self.session_name)()),
+            } => q.add(inputs, mode, *settings, (self.session_name)()),
             ImportCommand::Resume { retry_failed: true } => q.retry_failed(),
             ImportCommand::Resume {
                 retry_failed: false,

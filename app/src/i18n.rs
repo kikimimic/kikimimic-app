@@ -8,6 +8,19 @@ pub enum Ui {
 }
 
 impl Ui {
+    /// The language chosen in Settings, else the OS's.
+    pub fn new(chosen: Option<&str>) -> Self {
+        chosen.map_or_else(Self::detect, Self::from_locale)
+    }
+
+    /// The code saved as `Settings::ui_language`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Ja => "ja",
+        }
+    }
+
     /// From the OS's preferred languages (an app launched from Finder has no
     /// LANG), overridable with KKM_UI_LANG=en|ja.
     pub fn detect() -> Self {
@@ -43,6 +56,8 @@ macro_rules! texts {
 
 texts! {
     tab_models: "Models", "モデル";
+    ui_language: "Display language", "表示言語";
+    same_as_os: "Same as macOS", "macOS に合わせる";
     stop: "■ Stop", "■ 停止";
     record_meeting: "● Record meeting", "● 会議を録音";
     face_to_face: "Face to face", "対面";
@@ -410,5 +425,11 @@ mod tests {
         assert_eq!(Ui::from_locale("ja"), Ui::Ja);
         assert_eq!(Ui::from_locale("en-US"), Ui::En);
         assert_eq!(Ui::from_locale("fr"), Ui::En);
+    }
+
+    #[test]
+    fn a_chosen_language_wins_over_the_os() {
+        assert_eq!(Ui::new(Some("en")), Ui::En);
+        assert_eq!(Ui::new(Some("ja")), Ui::Ja);
     }
 }

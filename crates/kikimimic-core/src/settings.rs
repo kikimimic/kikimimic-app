@@ -32,6 +32,9 @@ pub struct Settings {
     /// Record calendar meetings by themselves (meeting::MeetingPolicy).
     #[serde(default)]
     pub auto_record: bool,
+    /// The app's own wording: "en" or "ja"; `None` follows the OS.
+    #[serde(default)]
+    pub ui_language: Option<String>,
 }
 
 impl Settings {
@@ -46,6 +49,7 @@ impl Settings {
             destinations: crate::destinations::defaults(),
             agent: None,
             auto_record: false,
+            ui_language: None,
         }
     }
 
@@ -127,6 +131,18 @@ mod tests {
         s.auto_record = true;
         s.save(&p).unwrap();
         assert!(Settings::load(&p, c).auto_record);
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn the_ui_language_follows_the_os_until_chosen() {
+        let c = Catalog::builtin();
+        assert_eq!(Settings::defaults(c).ui_language, None);
+        let p = path("ui-language");
+        let mut s = Settings::defaults(c);
+        s.ui_language = Some("ja".into());
+        s.save(&p).unwrap();
+        assert_eq!(Settings::load(&p, c).ui_language.as_deref(), Some("ja"));
         std::fs::remove_file(p).unwrap();
     }
 
