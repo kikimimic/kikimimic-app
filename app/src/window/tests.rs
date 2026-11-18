@@ -308,6 +308,30 @@ fn a_meeting_with_word_timing_shows_its_subtitle_timeline(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn choosing_a_ui_language_relabels_the_window_at_once(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state, calendar, cx)
+    });
+    window.update(cx, |w, cx| w.show(View::Settings, cx));
+    cx.run_until_parked();
+    for (id, ui, search) in [
+        ("ui-lang-ja", Ui::Ja, "会議と発言を検索"),
+        ("ui-lang-en", Ui::En, "Search meetings and what was said"),
+    ] {
+        click(cx, id);
+        window.read_with(cx, |w, cx| {
+            assert_eq!(w.ui, ui);
+            assert_eq!(w.search.read(cx).placeholder.as_ref(), search);
+        });
+    }
+    assert_eq!(kkm.settings().ui_language.as_deref(), Some("en"));
+}
+
+#[gpui::test]
 fn calendar_meetings_start_and_stop_automatic_recording(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let kkm = fixture.start();

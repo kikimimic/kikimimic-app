@@ -176,6 +176,30 @@ impl MainWindow {
         col = col.child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
+                .child(ui.ui_language()),
+        );
+        let mut row = div().flex().gap_2();
+        for (id, code, label) in [
+            ("ui-lang-os", None, ui.same_as_os()),
+            ("ui-lang-en", Some(Ui::En), "English"),
+            ("ui-lang-ja", Some(Ui::Ja), "日本語"),
+        ] {
+            let code = code.map(|u| u.code().to_string());
+            let on = settings.ui_language == code;
+            row = row.child(
+                button(id, label, on)
+                    .debug_selector(move || id.into())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let code = code.clone();
+                        this.update_settings(|s| s.ui_language = code, cx)
+                    })),
+            );
+        }
+        col = col.child(row);
+
+        col = col.child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
                 .child(ui.spoken_languages()),
         );
         let mut row = div().flex().gap_2().flex_wrap();

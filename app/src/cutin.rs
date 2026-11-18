@@ -86,11 +86,11 @@ impl Cutin {
         })
         .detach();
         Self {
+            ui: Ui::new(kkm.settings().ui_language.as_deref()),
             calendar,
             kkm,
             state,
             meetings,
-            ui: Ui::detect(),
         }
     }
 

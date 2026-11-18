@@ -237,11 +237,15 @@ impl MainWindow {
                 .child(
                     button("meeting", ui.record_meeting(), false)
                         .flex_1()
+                        .min_w_0()
+                        .px_2()
+                        .text_center()
+                        .truncate()
                         .on_click(
                             cx.listener(|this, _, _, cx| this.start(SessionMode::Meeting, cx)),
                         ),
                 )
-                .child(button("face", ui.face_to_face(), false).on_click(
+                .child(button("face", ui.face_to_face(), false).px_2().on_click(
                     cx.listener(|this, _, _, cx| this.start(SessionMode::FaceToFace, cx)),
                 ));
         }
