@@ -123,7 +123,23 @@ impl AsrEngine for Listening {
     }
 }
 
+/// Engines dropped so far, across this binary's tests: [ASR, MT].
+static DROPPED: [std::sync::atomic::AtomicUsize; 2] = [
+    std::sync::atomic::AtomicUsize::new(0),
+    std::sync::atomic::AtomicUsize::new(0),
+];
+impl Drop for Listening {
+    fn drop(&mut self) {
+        DROPPED[0].fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 struct Upper;
+impl Drop for Upper {
+    fn drop(&mut self) {
+        DROPPED[1].fetch_add(1, Ordering::SeqCst);
+    }
+}
 impl MtEngine for Upper {
     fn translate(&mut self, req: &MtRequest<'_>) -> anyhow::Result<String> {
         Ok(req.text.to_uppercase())
@@ -249,6 +265,31 @@ fn a_face_to_face_session_transcribes_translates_and_goes_idle() {
     }
     assert_eq!(translated.as_deref(), Some("HELLO"));
     assert!(idle, "the session went idle after Stop");
+}
+
+#[test]
+fn shutdown_unloads_the_loaded_engines_before_returning() {
+    // A GPU engine's ggml aborts in its static destructor at `exit` when a
+    // model is still alive, so quitting must free them first.
+    let (kkm, events) = start("shutdown", true);
+    kkm.start_session(SessionMode::FaceToFace);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut translated = false;
+    while !translated && Instant::now() < deadline {
+        translated = matches!(
+            events.recv_timeout(Duration::from_millis(100)),
+            Some(Event::Translation {
+                outcome: TranslationOutcome::Text { .. },
+                ..
+            })
+        );
+    }
+    assert!(translated, "both engines were loaded");
+    let before = DROPPED.each_ref().map(|d| d.load(Ordering::SeqCst));
+    kkm.shutdown();
+    let after = DROPPED.each_ref().map(|d| d.load(Ordering::SeqCst));
+    assert!(after[0] > before[0], "the recognizer was dropped");
+    assert!(after[1] > before[1], "the translator was dropped");
 }
 
 #[test]

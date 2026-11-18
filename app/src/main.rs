@@ -88,6 +88,15 @@ fn main() {
     });
     gpui_platform::application().run(move |cx: &mut App| {
         text_input::bind_keys(cx);
+        // Runs before AppKit's `exit`, whose static destructors include ggml's.
+        cx.on_app_quit({
+            let kkm = kkm.clone();
+            move |_| {
+                kkm.shutdown();
+                async {}
+            }
+        })
+        .detach();
         let state = cx.new(|_| AppState::default());
         forward(events, state.clone(), cx);
         let bounds = Bounds::centered(None, size(px(960.), px(720.)), cx);
