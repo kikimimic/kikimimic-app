@@ -108,8 +108,6 @@ texts! {
     no_title: "(No title)", "（タイトルなし）";
     untitled_recording: "Recording", "会議の録音";
     search_meetings: "Search meetings and what was said", "会議と発言を検索";
-    filter_all: "All", "すべて";
-    filter_unfinished: "Unfinished", "未完了";
     today: "Today", "今日";
     yesterday: "Yesterday", "昨日";
     undated: "Undated", "日付なし";
@@ -423,13 +421,6 @@ impl Ui {
         match self {
             Self::En => format!("Next: {title} at {at}"),
             Self::Ja => format!("次: {title}  {at}"),
-        }
-    }
-
-    pub fn unfinished_count(self, n: usize) -> String {
-        match self {
-            Self::En => format!("{n} unfinished"),
-            Self::Ja => format!("後処理待ち {n}"),
         }
     }
 
