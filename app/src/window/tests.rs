@@ -503,6 +503,10 @@ fn window_with<'a>(
     cx: &'a mut TestAppContext,
 ) -> (gpui::Entity<MainWindow>, &'a mut gpui::VisualTestContext) {
     let kkm = fixture.start();
+    // Labels are matched by text; don't depend on the machine's locale.
+    let mut settings = kkm.settings();
+    settings.ui_language = Some("ja".into());
+    kkm.update_settings(settings).unwrap();
     cx.update(|cx| {
         crate::widgets::text_input::bind_keys(cx);
         crate::menus::bind_keys(cx);
