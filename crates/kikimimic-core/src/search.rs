@@ -100,9 +100,13 @@ mod tests {
         }
         assert!(search(&root, &[], "宿題").unwrap().is_empty());
         std::fs::write(&file, "完了").unwrap();
-        assert!(search(&root, std::slice::from_ref(&root), "宿題").unwrap().is_empty());
+        assert!(search(&root, std::slice::from_ref(&root), "宿題")
+            .unwrap()
+            .is_empty());
         std::fs::remove_file(file).unwrap();
-        assert!(search(&root, std::slice::from_ref(&root), "完了").unwrap().is_empty());
+        assert!(search(&root, std::slice::from_ref(&root), "完了")
+            .unwrap()
+            .is_empty());
         std::fs::remove_dir(root).unwrap();
     }
 }
