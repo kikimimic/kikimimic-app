@@ -629,14 +629,7 @@ impl MainWindow {
                     .into(),
                 )
                 .opacity(if listening { 1. } else { 0.5 })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if this.state.read(cx).is_listening() {
-                        if let Err(error) = crate::captions::toggle(this.state.clone(), cx) {
-                            this.error = Some(error.to_string());
-                        }
-                        cx.notify();
-                    }
-                })),
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_captions(cx))),
             )
             .child(
                 item(

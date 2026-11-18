@@ -171,6 +171,10 @@ texts! {
     live_title: "Live", "ライブ";
     tab_ask: "Ask", "質問";
     advisor: "Advisor", "アドバイザー";
+    quit: "Quit Kikimimic", "Kikimimic を終了";
+    recording_menu: "Recording", "録音";
+    toggle_auto_record: "Toggle auto-record", "自動録音を切り替える";
+    toggle_captions: "Toggle captions", "字幕を切り替える";
     started_automatically: "Started automatically", "自動で開始";
     auto_record_on: "Auto-record: on", "自動録音: オン";
     auto_record_off: "Auto-record: off", "自動録音: オフ";

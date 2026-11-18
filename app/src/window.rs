@@ -377,6 +377,26 @@ impl MainWindow {
         cx.notify();
     }
 
+    /// Start recording from outside the window (the menu bar, the Dock).
+    pub(crate) fn record(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        if !self.state.read(cx).is_listening() {
+            self.start(mode, cx);
+        }
+    }
+
+    pub(crate) fn toggle_auto_record(&mut self, cx: &mut Context<Self>) {
+        self.update_settings(|s| s.auto_record = !s.auto_record, cx);
+    }
+
+    pub(crate) fn toggle_captions(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).is_listening() {
+            if let Err(error) = crate::captions::toggle(self.state.clone(), cx) {
+                self.error = Some(error.to_string());
+            }
+            cx.notify();
+        }
+    }
+
     /// A recording the user started: automatic recording leaves it alone.
     fn start(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
         self.policy.manual_started();
@@ -385,7 +405,7 @@ impl MainWindow {
 
     /// Stopped by the user: an automatic recording does not come back for
     /// the same meeting.
-    fn stop_by_user(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn stop_by_user(&mut self, cx: &mut Context<Self>) {
         self.policy.stopped(true);
         self.auto_session = false;
         self.kkm.stop_session();
