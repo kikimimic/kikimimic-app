@@ -387,9 +387,20 @@ impl MainWindow {
                         .border_color(theme::fg());
                 }
                 let selector = format!("timeline-{}", r.name);
-                list = list.child(row.debug_selector(move || selector.clone()).on_click(
-                    cx.listener(move |this, _, _, cx| this.open_recording_dir(dir.clone(), cx)),
-                ));
+                let menu_dir = dir.clone();
+                list = list.child(
+                    row.debug_selector(move || selector.clone())
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                this.timeline_menu = Some((menu_dir.clone(), e.position));
+                                cx.notify();
+                            }),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_recording_dir(dir.clone(), cx)
+                        })),
+                );
             }
         }
         if limit < days.len() {
@@ -401,6 +412,28 @@ impl MainWindow {
                         cx.notify();
                     })),
             );
+        }
+        if let Some((dir, at)) = self.timeline_menu.clone() {
+            list = list.child(deferred(
+                anchored().position(at).child(
+                    div()
+                        .bg(rgb(0xffffff))
+                        .shadow_md()
+                        .rounded(px(6.))
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.timeline_menu = None;
+                            cx.notify();
+                        }))
+                        .child(
+                            button("timeline-trash", ui.move_to_trash(), false)
+                                .debug_selector(|| "timeline-trash".into())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.timeline_menu = None;
+                                    this.trash_recording(dir.clone(), cx);
+                                })),
+                        ),
+                ),
+            ));
         }
         if self.recordings.is_empty() {
             list = list.child(
