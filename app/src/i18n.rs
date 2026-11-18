@@ -170,6 +170,12 @@ texts! {
     lane_them: "Them", "相手";
     live_title: "Live", "ライブ";
     tab_ask: "Ask", "質問";
+    advisor: "Advisor", "アドバイザー";
+    stop_advisor: "Stop advisor", "アドバイザーを停止";
+    no_advice: "Nothing to point out right now.", "いま出せる助言はありません。";
+    advice_follow_up: "Follow-up", "持ち帰り";
+    advice_open_question: "Open question", "未回答の質問";
+    advice_undecided: "Undecided", "未決";
     ask: "Ask", "聞く";
     ask_placeholder: "Ask about this meeting…", "この会議について質問…";
     asking: "Asking…", "問い合わせ中…";
