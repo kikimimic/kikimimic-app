@@ -665,6 +665,43 @@ impl MainWindow {
             Phase::Stopping => ui.finishing().to_string(),
             Phase::Error { message } => ui.error(message),
         };
+        // One meter per lane the session records; the other side's carries
+        // the device it captures, which is what changes under you.
+        let face = self.live_mode == Some(SessionMode::FaceToFace);
+        let device = match &state.source_message {
+            Some(SourceMessage::Switched(name)) => Some(name.clone()),
+            _ => None,
+        };
+        let meters: Vec<_> = [("mic", ui.lane_me(), None), ("speaker", ui.lane_them(), device)]
+            .into_iter()
+            .filter(|(lane, _, _)| listening && !(face && *lane == "speaker"))
+            .map(|(lane, name, device)| {
+                // Square root: speech peaks around 0.1–0.5 and should
+                // fill most of the bar.
+                let level = state.level(lane).unwrap_or(0.).sqrt();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(name)
+                    .child(
+                        div()
+                            .w(px(36.))
+                            .h(px(4.))
+                            .rounded(px(2.))
+                            .bg(theme::border())
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("meter-{lane}"))
+                                    .h_full()
+                                    .w(px(36. * level))
+                                    .bg(theme::ok()),
+                            ),
+                    )
+                    .children(device)
+            })
+            .collect();
         let item = |id: &'static str, text: String| {
             div()
                 .id(id)
@@ -691,8 +728,13 @@ impl MainWindow {
                     } else {
                         rgb(0x656d76)
                     })
-                    .child(phase),
+                    .child(if listening {
+                        format!("● {phase} {}", self.elapsed())
+                    } else {
+                        phase
+                    }),
             )
+            .children(meters)
             .child(
                 item(
                     "footer-face",
@@ -735,6 +777,19 @@ impl MainWindow {
                 })),
             )
             .child(div().flex_1())
+            .child(
+                item(
+                    "footer-agent",
+                    match settings.agent {
+                        Some(a) => ui.asks_go_to(a.name()),
+                        None => ui.asks_go_to(ui.not_chosen()),
+                    },
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.section = super::settings::Section::Link;
+                    this.show(View::Settings, cx);
+                })),
+            )
             .child(ui.processed_locally())
     }
 }

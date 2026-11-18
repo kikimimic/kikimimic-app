@@ -565,3 +565,28 @@ fn cmd_j_opens_the_question_drawer_beside_any_screen(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("cmd-j");
     window.read_with(cx, |w, _| assert!(!w.ask_open));
 }
+
+#[gpui::test]
+fn the_status_line_shows_each_lane_hearing_something_while_recording(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let state = cx.new(|_| AppState::default());
+    let (_window, cx) = cx.add_window_view(|_, cx| {
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("meter-mic").is_none(), "no meter while idle");
+    state.update(cx, |s, cx| {
+        s.phase = Phase::Listening;
+        s.levels = vec![
+            (kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::Mic, 1), 0.25),
+            (kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::System, 1), 0.0),
+        ];
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let mic = cx.debug_bounds("meter-mic").expect("a meter for the mic");
+    let speaker = cx.debug_bounds("meter-speaker").expect("and for the other side");
+    assert!(mic.size.width > speaker.size.width, "{mic:?} {speaker:?}");
+}

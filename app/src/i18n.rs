@@ -201,6 +201,7 @@ texts! {
     cmd_make_minutes: "Make minutes for this meeting", "この会議の議事録を作る";
     cmd_export_settings: "Export destinations", "書き出し先の設定";
     ask_title: "Ask", "質問";
+    not_chosen: "not chosen", "未設定";
     live_stopped: "Live (stopped)", "ライブ（停止中）";
     live_empty: "Listening… what is said appears here as one stream. Captions show over the meeting app.", "聞き取っています… 話し始めると、ここに 1 本の流れで出ます。会議アプリの上には字幕が出ます。";
     close: "Close", "閉じる";
@@ -360,6 +361,13 @@ impl Ui {
         match self {
             Self::En => format!("Send to {agent} ({company})?"),
             Self::Ja => format!("{agent}（{company}）に送ります。"),
+        }
+    }
+
+    pub fn asks_go_to(self, agent: &str) -> String {
+        match self {
+            Self::En => format!("Questions: {agent}"),
+            Self::Ja => format!("質問: {agent}"),
         }
     }
 
