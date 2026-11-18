@@ -84,6 +84,8 @@ enum Msg {
         Box<dyn crate::imports::AudioDecoder>,
     ),
     ImportFinished(Box<dyn crate::imports::AudioDecoder>),
+    /// Free the engines, then stop; replies once both are gone.
+    Shutdown(Sender<()>),
 }
 
 /// The app's handle. Cheap to clone; every call is a message to the
@@ -184,6 +186,18 @@ impl Kikimimic {
     /// Answer a `Event::Source` question (follow the new output device?).
     pub fn decide_source(&self, decision: crate::capture::SourceDecision) {
         let _ = self.tx.send(Msg::Decide(decision));
+    }
+
+    /// Free the loaded models and stop the runtime; every later call is a
+    /// no-op. Call before the process exits: ggml's Metal backend aborts in
+    /// its static destructor when a model is still alive at `exit`.
+    pub fn shutdown(&self) {
+        let (done_tx, done_rx) = mpsc::channel();
+        if self.tx.send(Msg::Shutdown(done_tx)).is_ok() {
+            // ponytail: a bounded wait, so a long clip mid-recognition cannot
+            // hang quitting; the abort can still happen past it.
+            let _ = done_rx.recv_timeout(Duration::from_secs(5));
+        }
     }
 
     /// Label who spoke in a finished recording, then re-recognize the lines
@@ -359,6 +373,15 @@ impl Shell {
                     for handle in &mut self.handles {
                         handle.decide(decision.clone());
                     }
+                }
+                Ok(Msg::Shutdown(done)) => {
+                    let (asr_tx, asr_rx) = mpsc::channel();
+                    let (mt_tx, mt_rx) = mpsc::channel();
+                    let _ = self.asr.send(AsrWork::Shutdown(asr_tx));
+                    let _ = self.mt.send(MtWork::Shutdown(mt_tx));
+                    let _ = (asr_rx.recv(), mt_rx.recv());
+                    let _ = done.send(());
+                    return;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -571,6 +594,8 @@ enum AsrWork {
     Ensure(Sender<Result<Duration, String>>),
     /// Recognize one clip outside any session (post-processing).
     Clip(Pcm16k, Spoken, Sender<Result<Vec<Recognized>, String>>),
+    /// Drop the model and exit the thread, then reply.
+    Shutdown(Sender<()>),
 }
 
 fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
@@ -615,6 +640,11 @@ fn spawn_asr(models: Models, tx: Sender<Msg>) -> Sender<AsrWork> {
                         });
                         let _ = reply.send(result);
                         continue;
+                    }
+                    AsrWork::Shutdown(done) => {
+                        drop(loaded.take());
+                        let _ = done.send(());
+                        return;
                     }
                     AsrWork::Run(work) => work,
                 };
@@ -708,6 +738,8 @@ enum MtWork {
         target: Lang,
         reply: Sender<Result<String, String>>,
     },
+    /// Drop the model and exit the thread, then reply.
+    Shutdown(Sender<()>),
 }
 
 fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<MtWork> {
@@ -730,6 +762,11 @@ fn spawn_mt(models: Models, tx: Sender<Msg>) -> Sender<MtWork> {
                             settings.mt_model,
                         ));
                         continue;
+                    }
+                    MtWork::Shutdown(done) => {
+                        drop(loaded.take());
+                        let _ = done.send(());
+                        return;
                     }
                     MtWork::Job(job) => job,
                     MtWork::Direct {
