@@ -33,6 +33,7 @@ pub mod search;
 pub mod settings;
 pub mod sim;
 pub mod store;
+pub mod timeline;
 pub mod word_timing;
 
 pub use conductor::RecordingTarget;
