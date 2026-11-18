@@ -62,9 +62,85 @@ pub fn source_json(lines: &[Line]) -> anyhow::Result<String> {
     Ok(serde_json::to_string(lines)?)
 }
 
+/// Where a recording's minutes live, next to its transcript.
+pub const FILE: &str = "minutes.json";
+
+/// The saved minutes, or `None` when none were made yet.
+pub fn load(dir: &std::path::Path) -> anyhow::Result<Option<Minutes>> {
+    match std::fs::read_to_string(dir.join(FILE)) {
+        Ok(text) => Ok(Some(serde_json::from_str(&text)?)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Validate against the transcript, then replace the file atomically so a
+/// refused or interrupted save leaves the previous minutes intact.
+pub fn save(dir: &std::path::Path, minutes: &Minutes, lines: &[Line]) -> anyhow::Result<()> {
+    minutes.validate(lines)?;
+    let tmp = dir.join(format!("{FILE}.tmp"));
+    std::fs::write(&tmp, serde_json::to_string_pretty(minutes)?)?;
+    std::fs::rename(tmp, dir.join(FILE))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn said(id: u64, text: &str) -> Line {
+        Line {
+            id,
+            lane: "mic".into(),
+            start_ms: id * 1000,
+            end_ms: id * 1000 + 900,
+            lang: None,
+            text: text.into(),
+            translation: None,
+            translation_lang: None,
+            speaker: None,
+        }
+    }
+
+    #[test]
+    fn saved_minutes_come_back_and_unchecked_ones_are_refused() {
+        let dir = std::env::temp_dir().join(format!("kkm-minutes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lines = [said(1, "木曜までに直します")];
+        assert!(load(&dir).unwrap().is_none());
+        let ok = Minutes {
+            items: vec![Item {
+                kind: Kind::Action,
+                text: "直す".into(),
+                evidence: vec![1],
+                owner: None,
+                deadline: Some("木曜".into()),
+                supersedes: None,
+            }],
+        };
+        save(&dir, &ok, &lines).unwrap();
+        assert_eq!(
+            load(&dir).unwrap().unwrap().items[0].deadline.as_deref(),
+            Some("木曜")
+        );
+        let dangling = Minutes {
+            items: vec![Item {
+                kind: Kind::Summary,
+                text: "x".into(),
+                evidence: vec![9],
+                owner: None,
+                deadline: None,
+                supersedes: None,
+            }],
+        };
+        assert!(save(&dir, &dangling, &lines).is_err());
+        assert_eq!(
+            load(&dir).unwrap().unwrap().items.len(),
+            1,
+            "a refused save keeps the old file"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn refuses_unsupported_output_and_forward_revisions() {
         let mut minutes = Minutes {
