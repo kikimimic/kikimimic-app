@@ -226,6 +226,70 @@ impl MainWindow {
         )
     }
 
+    /// The meeting a question is about: the one being recorded, else the
+    /// one open.
+    fn ask_scope(&self, cx: &gpui::App) -> Option<PathBuf> {
+        let state = self.state.read(cx);
+        state
+            .recording_dir
+            .clone()
+            .filter(|_| state.is_listening())
+            .or_else(|| self.open_recording.as_ref().map(|(d, _)| d.clone()))
+    }
+
+    /// ⌘J: questions at the right of whatever screen is showing, so the
+    /// meeting stays in view while you ask about it.
+    pub(super) fn ask_drawer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = self.ui;
+        let body = match self.ask_scope(cx) {
+            Some(dir) => self.ask_panel(&dir, cx),
+            None => div()
+                .text_size(px(12.5))
+                .text_color(theme::muted())
+                .child(ui.ask_needs_meeting())
+                .into_any_element(),
+        };
+        div()
+            .id("ask-drawer")
+            .debug_selector(|| "ask-drawer".into())
+            .w(px(340.))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .border_l_1()
+            .border_color(theme::border())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(ui.ask_title()),
+                    )
+                    .child(
+                        button("ask-close", ui.close(), false)
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_ask(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .id("ask-body")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_3()
+                    .child(body),
+            )
+            .into_any_element()
+    }
+
     /// Questions about `dir`, their answers, and the box to ask another.
     pub(super) fn ask_panel(&self, dir: &Path, cx: &mut Context<Self>) -> AnyElement {
         let ui = self.ui;

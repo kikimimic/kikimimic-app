@@ -2,7 +2,7 @@
 //! recording without bringing the window forward. The window stays the
 //! main place to work; these only reach what is needed mid-meeting.
 
-use gpui::{App, Menu, MenuItem, WindowHandle, actions};
+use gpui::{App, KeyBinding, Menu, MenuItem, WindowHandle, actions};
 use kikimimic_core::SessionMode;
 
 use crate::i18n::Ui;
@@ -16,9 +16,24 @@ actions!(
         RecordFaceToFace,
         StopRecording,
         ToggleAutoRecord,
-        ToggleCaptions
+        ToggleCaptions,
+        ToggleAsk,
+        OpenPalette,
+        OpenSettings
     ]
 );
+
+/// Shortcuts. Every one of them is also a visible button or menu item; the
+/// keys are only a quicker way there.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("cmd-r", RecordMeeting, None),
+        KeyBinding::new("shift-cmd-r", RecordFaceToFace, None),
+        KeyBinding::new("cmd-j", ToggleAsk, None),
+        KeyBinding::new("cmd-k", OpenPalette, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
+    ]);
+}
 
 /// The recording actions, shared by the menu bar and the Dock menu.
 fn recording_items(ui: Ui) -> Vec<MenuItem> {
@@ -36,10 +51,16 @@ pub fn menus(ui: Ui) -> Vec<Menu> {
     vec![
         Menu::new("Kikimimic").items([MenuItem::action(ui.quit(), Quit)]),
         Menu::new(ui.recording_menu()).items(recording_items(ui)),
+        Menu::new(ui.view_menu()).items([
+            MenuItem::action(ui.ask_button(), ToggleAsk),
+            MenuItem::action(ui.commands_button(), OpenPalette),
+            MenuItem::action(ui.settings_button(), OpenSettings),
+        ]),
     ]
 }
 
 pub fn install(main: WindowHandle<MainWindow>, cx: &mut App) {
+    bind_keys(cx);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(move |_: &RecordMeeting, cx| {
         let _ = main.update(cx, |w, _, cx| w.record(SessionMode::Meeting, cx));
@@ -73,7 +94,7 @@ mod tests {
     #[test]
     fn the_recording_menu_reaches_what_a_meeting_needs() {
         let m = menus(Ui::Ja);
-        assert_eq!(m.len(), 2);
+        assert_eq!(m.len(), 3);
         assert_eq!(m[1].name.as_ref(), "録音");
         let names: Vec<String> = m[1]
             .items

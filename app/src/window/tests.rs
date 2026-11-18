@@ -175,7 +175,7 @@ fn a_question_goes_to_the_agent_only_after_consent_and_comes_back_quoted(cx: &mu
     });
     cx.run_until_parked();
     click(cx, "timeline-20261117100000");
-    click(cx, "tab-ask");
+    click(cx, "ask-toggle");
     window.update(cx, |w, cx| {
         w.ask
             .input
@@ -439,7 +439,7 @@ fn cmd_enter_in_the_question_box_asks_like_the_button_but_enter_alone_does_not(
     });
     cx.run_until_parked();
     click(cx, "timeline-20261117100000");
-    click(cx, "tab-ask");
+    click(cx, "ask-toggle");
     window.update_in(cx, |w, window, cx| {
         w.ask
             .input
@@ -501,4 +501,67 @@ fn an_untitled_recording_is_listed_by_what_was_said_not_its_folder(cx: &mut Test
             "定例を始めます"
         );
     });
+}
+
+fn window_with<'a>(
+    fixture: &Fixture,
+    cx: &'a mut TestAppContext,
+) -> (gpui::Entity<MainWindow>, &'a mut gpui::VisualTestContext) {
+    let kkm = fixture.start();
+    cx.update(|cx| {
+        crate::widgets::text_input::bind_keys(cx);
+        crate::menus::bind_keys(cx);
+    });
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state, calendar, cx)
+    });
+    cx.run_until_parked();
+    (window, cx)
+}
+
+#[gpui::test]
+fn cmd_k_finds_an_action_by_name_and_enter_runs_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (window, cx) = window_with(&fixture, cx);
+    cx.simulate_keystrokes("cmd-k");
+    assert!(cx.debug_bounds("palette").is_some(), "cmd-k opens the palette");
+    window.update(cx, |w, cx| {
+        let input = w.palette.as_ref().unwrap().input.clone();
+        input.update(cx, |i, cx| i.set_text("設定", cx));
+    });
+    cx.simulate_keystrokes("enter");
+    window.read_with(cx, |w, _| {
+        assert!(w.palette.is_none(), "running an action closes it");
+        assert!(w.view == View::Settings);
+    });
+
+    cx.simulate_keystrokes("cmd-k");
+    cx.simulate_keystrokes("escape");
+    window.read_with(cx, |w, _| assert!(w.palette.is_none(), "escape closes it"));
+}
+
+#[gpui::test]
+fn the_palette_lists_only_what_can_be_done_now(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (window, cx) = window_with(&fixture, cx);
+    click(cx, "palette-open");
+    window.read_with(cx, |w, cx| {
+        let labels: Vec<_> = w.palette_commands(cx).iter().map(|c| c.0).collect();
+        assert!(labels.contains(&"● 会議を録音"));
+        assert!(!labels.contains(&"■ 停止"), "nothing to stop");
+    });
+}
+
+#[gpui::test]
+fn cmd_j_opens_the_question_drawer_beside_any_screen(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (window, cx) = window_with(&fixture, cx);
+    click(cx, "timeline-20261117100000");
+    cx.simulate_keystrokes("cmd-j");
+    assert!(cx.debug_bounds("ask-drawer").is_some());
+    assert!(cx.debug_bounds("detail-player").is_some(), "the meeting stays open beside it");
+    cx.simulate_keystrokes("cmd-j");
+    window.read_with(cx, |w, _| assert!(!w.ask_open));
 }
