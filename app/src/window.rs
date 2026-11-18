@@ -71,6 +71,11 @@ pub struct MainWindow {
     auto_session: bool,
     /// The policy counts monotonic seconds from here.
     started_at: std::time::Instant,
+    /// When the current session started, for the elapsed time on screen.
+    session_started: Option<std::time::Instant>,
+    /// The calendar meeting's title, written to the recording once its
+    /// folder exists.
+    session_title: Option<String>,
     /// How an agent is called; tests put a fake here.
     run_agent: fn(kikimimic_core::agent::Agent, &str) -> anyhow::Result<String>,
     dest_selected: usize,
@@ -163,8 +168,18 @@ impl MainWindow {
         cx.observe(&state, |this: &mut Self, state, cx| {
             // A session that just ended is a finished recording.
             let running = matches!(state.read(cx).phase, Phase::Listening | Phase::Stopping);
+            if let (Some(dir), true) = (state.read(cx).recording_dir.clone(), running)
+                && let Some(title) = this.session_title.take()
+            {
+                // A title the library refuses (too long, a line break) leaves
+                // the recording untitled, as it was before calendars.
+                let _ = library::set_title(&crate::paths::recordings_dir(), &dir, &title);
+                this.refresh_recordings(cx);
+            }
             if this.was_running && !running {
                 this.live_mode = None;
+                this.session_started = None;
+                this.session_title = None;
                 this.policy.stopped(false);
                 this.auto_session = false;
                 if let Some(dir) = state.read(cx).recording_dir.clone() {
@@ -280,6 +295,8 @@ impl MainWindow {
             policy: Default::default(),
             auto_session: false,
             started_at: std::time::Instant::now(),
+            session_started: None,
+            session_title: None,
             run_agent: kikimimic_core::agent::run,
             dest_selected: 0,
             dest_name: cx.new(|cx| TextInput::new("", cx)),
@@ -483,6 +500,11 @@ impl MainWindow {
             self.state.update(cx, |s, _| s.lines.clear());
         }
         self.live_mode = Some(mode);
+        self.session_started = Some(std::time::Instant::now());
+        self.session_title = match mode {
+            SessionMode::Meeting => self.calendar.read(cx).title_now(chrono::Utc::now()),
+            SessionMode::FaceToFace => None,
+        };
         // One advisor per meeting: dismissals and a stop do not carry over.
         self.advice = Default::default();
         self.view = View::Live;

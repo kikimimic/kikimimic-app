@@ -62,6 +62,21 @@ fn clock_of(started: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
+/// What a recording is called in the timeline: its title, else the start of
+/// what was said (the time is already beside it, so the folder's timestamp
+/// would only repeat it).
+pub(super) fn row_title(ui: Ui, r: &Recording) -> String {
+    if let Some(t) = &r.title {
+        return t.clone();
+    }
+    let said: String = r.snippet.trim().chars().take(40).collect();
+    if said.is_empty() {
+        ui.untitled_recording().into()
+    } else {
+        said
+    }
+}
+
 /// The centred, width-limited column every screen's content sits in.
 pub(super) fn column() -> gpui::Div {
     div()
@@ -373,7 +388,7 @@ impl MainWindow {
                             .min_w_0()
                             .truncate()
                             .text_size(px(13.))
-                            .child(r.title.clone().unwrap_or_else(|| r.name.clone())),
+                            .child(row_title(ui, r)),
                     );
                 if let Some(stage) = stage {
                     row = row.child(

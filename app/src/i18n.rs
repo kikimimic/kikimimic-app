@@ -106,6 +106,7 @@ texts! {
     record: "Record", "録音を開始";
     dismiss: "Dismiss", "閉じる";
     no_title: "(No title)", "（タイトルなし）";
+    untitled_recording: "Recording", "会議の録音";
     search_meetings: "Search meetings and what was said", "会議と発言を検索";
     filter_all: "All", "すべて";
     filter_unfinished: "Unfinished", "未完了";

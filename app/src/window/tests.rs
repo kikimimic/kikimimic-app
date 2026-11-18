@@ -457,3 +457,48 @@ fn cmd_enter_in_the_question_box_asks_like_the_button_but_enter_alone_does_not(
         assert!(w.ask.input.read(cx).text().is_empty());
     });
 }
+
+#[gpui::test]
+fn a_recording_takes_the_calendar_meetings_title_once_its_folder_exists(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let state = cx.new(|_| AppState::default());
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
+    });
+    cx.run_until_parked();
+    // What begin() takes from the calendar when a meeting is on.
+    window.update(cx, |w, _| w.session_title = Some("週次定例".into()));
+    let dir = fixture.0.join("recordings").join("20261117100000");
+    state.update(cx, |s, cx| {
+        s.phase = Phase::Listening;
+        s.recording_dir = Some(dir.clone());
+        cx.notify();
+    });
+    cx.run_until_parked();
+    window.read_with(cx, |w, _| {
+        assert_eq!(w.recordings[0].title.as_deref(), Some("週次定例"));
+        assert!(w.session_title.is_none(), "written once");
+    });
+}
+
+#[gpui::test]
+fn an_untitled_recording_is_listed_by_what_was_said_not_its_folder(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let kkm = fixture.start();
+    let (window, cx) = cx.add_window_view(|_, cx| {
+        let state = cx.new(|_| AppState::default());
+        let calendar = cx.new(|cx| Calendar::new(kkm.clone(), state.clone(), cx));
+        MainWindow::new(kkm.clone(), state, calendar, cx)
+    });
+    cx.run_until_parked();
+    window.read_with(cx, |w, _| {
+        assert_eq!(
+            shell::row_title(w.ui, &w.recordings[0]),
+            "定例を始めます"
+        );
+    });
+}
