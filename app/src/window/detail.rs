@@ -407,6 +407,9 @@ impl MainWindow {
             .flex_col()
             .gap_2()
             .child(self.word_toolbar(dir.to_path_buf(), cx));
+        if let Some(strip) = self.subtitle_timeline(cx) {
+            col = col.child(strip);
+        }
         if let Some(editor) = &self.speaker_editor {
             col = col.child(editor.clone());
         }

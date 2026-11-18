@@ -8,6 +8,7 @@ mod live;
 mod recordings;
 mod settings;
 mod shell;
+mod subtitles;
 
 use std::time::Duration;
 
