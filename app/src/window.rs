@@ -13,6 +13,7 @@ mod subtitles;
 
 use std::time::Duration;
 
+use crate::theme;
 use gpui::{
     AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, MouseButton, MouseDownEvent,
     Pixels, Point, ScrollHandle, SharedString, Window, anchored, deferred, div, hsla, prelude::*,
@@ -26,7 +27,6 @@ use kikimimic_core::glossary::GlossaryEntry;
 use kikimimic_core::library::{self, Recording};
 use kikimimic_core::store::ModelState;
 use kikimimic_core::{Kikimimic, SessionMode};
-use crate::theme;
 
 use crate::calendar::{Calendar, Status};
 use crate::downloads::{Downloads, Progress};
@@ -148,7 +148,10 @@ pub(crate) fn button(
 }
 
 /// The one red button: stopping a recording.
-pub(crate) fn stop_button(id: impl Into<gpui::ElementId>, label: String) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn stop_button(
+    id: impl Into<gpui::ElementId>,
+    label: String,
+) -> gpui::Stateful<gpui::Div> {
     button(id, label, false)
         .bg(theme::danger())
         .border_color(theme::danger())
@@ -165,7 +168,11 @@ pub(crate) fn segmented(items: Vec<gpui::Stateful<gpui::Div>>) -> gpui::Div {
         .overflow_hidden();
     for (i, item) in items.into_iter().enumerate() {
         let item = item.rounded(px(0.)).border_0();
-        row = row.child(if i > 0 { item.border_l_1().border_color(theme::border()) } else { item });
+        row = row.child(if i > 0 {
+            item.border_l_1().border_color(theme::border())
+        } else {
+            item
+        });
     }
     row
 }
@@ -599,9 +606,11 @@ impl Render for MainWindow {
             .relative()
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &crate::menus::ToggleAsk, _, cx| this.toggle_ask(cx)))
-            .on_action(cx.listener(|this, _: &crate::menus::OpenPalette, window, cx| {
-                this.open_palette(window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &crate::menus::OpenPalette, window, cx| {
+                    this.open_palette(window, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &crate::menus::OpenSettings, _, cx| {
                 this.show(View::Settings, cx)
             }))

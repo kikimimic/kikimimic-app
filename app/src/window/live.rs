@@ -244,12 +244,7 @@ impl MainWindow {
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll)
                 .when(state.lines.is_empty() && state.is_listening(), |d| {
-                    d.child(
-                        div()
-                            .py_6()
-                            .text_color(gray())
-                            .child(ui.live_empty()),
-                    )
+                    d.child(div().py_6().text_color(gray()).child(ui.live_empty()))
                 })
                 .children(lines),
         )

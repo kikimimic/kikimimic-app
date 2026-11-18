@@ -211,7 +211,16 @@ impl MainWindow {
             .started
             .as_deref()
             .filter(|s| s.len() >= 12)
-            .map(|s| format!("{}-{}-{} {}:{}", &s[..4], &s[4..6], &s[6..8], &s[8..10], &s[10..12]))
+            .map(|s| {
+                format!(
+                    "{}-{}-{} {}:{}",
+                    &s[..4],
+                    &s[4..6],
+                    &s[6..8],
+                    &s[8..10],
+                    &s[10..12]
+                )
+            })
             .unwrap_or_default();
         let header = div()
             .flex()

@@ -459,9 +459,7 @@ fn cmd_enter_in_the_question_box_asks_like_the_button_but_enter_alone_does_not(
 }
 
 #[gpui::test]
-fn a_recording_takes_the_calendar_meetings_title_once_its_folder_exists(
-    cx: &mut TestAppContext,
-) {
+fn a_recording_takes_the_calendar_meetings_title_once_its_folder_exists(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let kkm = fixture.start();
     let state = cx.new(|_| AppState::default());
@@ -496,10 +494,7 @@ fn an_untitled_recording_is_listed_by_what_was_said_not_its_folder(cx: &mut Test
     });
     cx.run_until_parked();
     window.read_with(cx, |w, _| {
-        assert_eq!(
-            shell::row_title(w.ui, &w.recordings[0]),
-            "定例を始めます"
-        );
+        assert_eq!(shell::row_title(w.ui, &w.recordings[0]), "定例を始めます");
     });
 }
 
@@ -526,7 +521,10 @@ fn cmd_k_finds_an_action_by_name_and_enter_runs_it(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (window, cx) = window_with(&fixture, cx);
     cx.simulate_keystrokes("cmd-k");
-    assert!(cx.debug_bounds("palette").is_some(), "cmd-k opens the palette");
+    assert!(
+        cx.debug_bounds("palette").is_some(),
+        "cmd-k opens the palette"
+    );
     window.update(cx, |w, cx| {
         let input = w.palette.as_ref().unwrap().input.clone();
         input.update(cx, |i, cx| i.set_text("設定", cx));
@@ -561,7 +559,10 @@ fn cmd_j_opens_the_question_drawer_beside_any_screen(cx: &mut TestAppContext) {
     click(cx, "timeline-20261117100000");
     cx.simulate_keystrokes("cmd-j");
     assert!(cx.debug_bounds("ask-drawer").is_some());
-    assert!(cx.debug_bounds("detail-player").is_some(), "the meeting stays open beside it");
+    assert!(
+        cx.debug_bounds("detail-player").is_some(),
+        "the meeting stays open beside it"
+    );
     cx.simulate_keystrokes("cmd-j");
     window.read_with(cx, |w, _| assert!(!w.ask_open));
 }
@@ -576,17 +577,28 @@ fn the_status_line_shows_each_lane_hearing_something_while_recording(cx: &mut Te
         MainWindow::new(kkm.clone(), state.clone(), calendar, cx)
     });
     cx.run_until_parked();
-    assert!(cx.debug_bounds("meter-mic").is_none(), "no meter while idle");
+    assert!(
+        cx.debug_bounds("meter-mic").is_none(),
+        "no meter while idle"
+    );
     state.update(cx, |s, cx| {
         s.phase = Phase::Listening;
         s.levels = vec![
-            (kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::Mic, 1), 0.25),
-            (kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::System, 1), 0.0),
+            (
+                kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::Mic, 1),
+                0.25,
+            ),
+            (
+                kikimimic_core::domain::LaneLabel::new(kikimimic_core::domain::LaneRole::System, 1),
+                0.0,
+            ),
         ];
         cx.notify();
     });
     cx.run_until_parked();
     let mic = cx.debug_bounds("meter-mic").expect("a meter for the mic");
-    let speaker = cx.debug_bounds("meter-speaker").expect("and for the other side");
+    let speaker = cx
+        .debug_bounds("meter-speaker")
+        .expect("and for the other side");
     assert!(mic.size.width > speaker.size.width, "{mic:?} {speaker:?}");
 }

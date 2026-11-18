@@ -233,9 +233,8 @@ impl MainWindow {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_ask(cx))),
             )
             .child(
-                keyed("palette-open", ui.commands_button(), "⌘K", false).on_click(cx.listener(
-                    |this, _, window, cx| this.open_palette(window, cx),
-                )),
+                keyed("palette-open", ui.commands_button(), "⌘K", false)
+                    .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
             );
         right = right.child(
             button(
@@ -672,36 +671,39 @@ impl MainWindow {
             Some(SourceMessage::Switched(name)) => Some(name.clone()),
             _ => None,
         };
-        let meters: Vec<_> = [("mic", ui.lane_me(), None), ("speaker", ui.lane_them(), device)]
-            .into_iter()
-            .filter(|(lane, _, _)| listening && !(face && *lane == "speaker"))
-            .map(|(lane, name, device)| {
-                // Square root: speech peaks around 0.1–0.5 and should
-                // fill most of the bar.
-                let level = state.level(lane).unwrap_or(0.).sqrt();
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(name)
-                    .child(
-                        div()
-                            .w(px(36.))
-                            .h(px(4.))
-                            .rounded(px(2.))
-                            .bg(theme::border())
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .debug_selector(move || format!("meter-{lane}"))
-                                    .h_full()
-                                    .w(px(36. * level))
-                                    .bg(theme::ok()),
-                            ),
-                    )
-                    .children(device)
-            })
-            .collect();
+        let meters: Vec<_> = [
+            ("mic", ui.lane_me(), None),
+            ("speaker", ui.lane_them(), device),
+        ]
+        .into_iter()
+        .filter(|(lane, _, _)| listening && !(face && *lane == "speaker"))
+        .map(|(lane, name, device)| {
+            // Square root: speech peaks around 0.1–0.5 and should
+            // fill most of the bar.
+            let level = state.level(lane).unwrap_or(0.).sqrt();
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(name)
+                .child(
+                    div()
+                        .w(px(36.))
+                        .h(px(4.))
+                        .rounded(px(2.))
+                        .bg(theme::border())
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .debug_selector(move || format!("meter-{lane}"))
+                                .h_full()
+                                .w(px(36. * level))
+                                .bg(theme::ok()),
+                        ),
+                )
+                .children(device)
+        })
+        .collect();
         let item = |id: &'static str, text: String| {
             div()
                 .id(id)
