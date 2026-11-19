@@ -272,56 +272,43 @@ impl MainWindow {
         cx.notify();
     }
 
-    /// Poll the player's actual AVAudioPlayer state. This timer only refreshes
-    /// observations; it never advances a simulated playback position.
+    /// Mirror the player's state for rendering; it never advances a simulated
+    /// position. Dropping the task, with the player, ends it.
     pub(super) fn observe_playback(
         &mut self,
-        path: PathBuf,
         recording: PathBuf,
         cx: &mut Context<Self>,
-    ) {
+    ) -> gpui::Task<()> {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(120))
                     .await;
-                let snapshot = std::fs::read(&path)
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice::<Playback>(&bytes).ok());
-                let Ok(running) = this.update(cx, |this, cx| {
-                    if this.playback_status.as_ref() != Some(&path) {
-                        return false;
-                    }
-                    let running = this
+                let Ok(true) = this.update(cx, |this, cx| {
+                    let state = this
                         .playback
-                        .as_mut()
-                        .is_some_and(|child| matches!(child.try_wait(), Ok(None)));
-                    this.words.playback = if running
-                        && this
-                            .open_recording
+                        .as_ref()
+                        .and_then(|(player, _)| player.state());
+                    let playing = state.is_some();
+                    this.words.playback = state.filter(|_| {
+                        this.open_recording
                             .as_ref()
                             .is_some_and(|(open, _)| open == &recording)
-                    {
-                        snapshot
-                    } else {
-                        None
-                    };
+                    });
                     if let Some(editor) = &this.speaker_editor {
                         let playback = this.words.playback.clone();
                         editor.update(cx, |editor, cx| editor.set_word_playback(playback, cx));
                     }
+                    if !playing {
+                        this.playback = None;
+                    }
                     cx.notify();
-                    running
+                    playing
                 }) else {
                     return;
                 };
-                if !running {
-                    let _ = std::fs::remove_file(&path);
-                    return;
-                }
             }
         })
-        .detach();
     }
 }
 

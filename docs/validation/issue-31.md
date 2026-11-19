@@ -1,5 +1,7 @@
 # Saved recording playback (#31)
 
+> Superseded: playback now runs inside the app process through rodio (`app/src/playback.rs`), driven by the detail player. The separate Swift player and its window described below no longer exist.
+
 The recording detail opens a separate native macOS player. Timestamp buttons open it at the utterance start. Play/pause, slider seek, elapsed/duration and available mix/mic/speaker selection operate without writing recordings. Starting capture terminates the player; playback is refused while listening. Closing the main window terminates the child.
 
 This implementation requires the macOS Swift command line tools at runtime. It is an independently reviewable first increment, not release-ready packaging. The helper is embedded in the executable and materialized in the temporary directory. Player startup compilation failures currently go to stderr.

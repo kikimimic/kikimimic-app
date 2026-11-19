@@ -378,14 +378,11 @@ impl MainWindow {
             .gap_3()
             .child(if playing {
                 button("player", ui.pause(), true)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.stop_playback();
-                        cx.notify();
-                    }))
+                    .on_click(cx.listener(|this, _, _, cx| this.pause_playback(cx)))
                     .into_any_element()
             } else {
                 button("player", ui.play(), false)
-                    .on_click(cx.listener(move |this, _, _, cx| this.play_recording(position, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.resume_playback(position, cx)))
                     .into_any_element()
             })
             .child(
