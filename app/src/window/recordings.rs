@@ -37,6 +37,20 @@ impl MainWindow {
         }
     }
 
+    /// Move playback to `position` on the lane playing, keeping it paused if
+    /// it was; with nothing loaded, start the mix there.
+    pub(super) fn seek_playback(&mut self, position: u64, cx: &mut Context<Self>) {
+        let (lane, paused) = self
+            .words
+            .playback
+            .as_ref()
+            .map_or(("mix".into(), false), |p| (p.lane.clone(), !p.playing));
+        self.play_word(position, &lane, cx);
+        if paused {
+            self.pause_playback(cx);
+        }
+    }
+
     pub(super) fn play_word(&mut self, position: u64, lane: &str, cx: &mut Context<Self>) {
         if let Some((dir, _)) = &self.open_recording {
             self.play_audio(&dir.clone(), position, lane, cx);

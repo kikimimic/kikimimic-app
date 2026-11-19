@@ -37,6 +37,12 @@ impl Playback {
                 .timing
                 .is_some_and(|t| self.position_ms >= t.start_ms && self.position_ms < t.end_ms)
     }
+
+    /// Whether `line` is where playback stands, paused or not.
+    pub(crate) fn plays(&self, line: &library::Line) -> bool {
+        (self.lane == "mix" || self.lane == line.lane)
+            && (line.start_ms..line.end_ms).contains(&self.position_ms)
+    }
 }
 
 impl MainWindow {
@@ -460,5 +466,30 @@ mod tests {
         playback.playing = true;
         playback.position_ms = 1500;
         assert!(!playback.active("mic", &word));
+    }
+
+    #[test]
+    fn the_line_being_played_is_the_one_whose_span_holds_the_position_on_its_lane_or_the_mix() {
+        let line = library::Line {
+            id: 1,
+            lane: "mic".into(),
+            start_ms: 1000,
+            end_ms: 2000,
+            lang: None,
+            text: "語".into(),
+            translation: None,
+            translation_lang: None,
+            speaker: None,
+        };
+        let at = |lane: &str, position_ms| Playback {
+            position_ms,
+            playing: false,
+            lane: lane.into(),
+        };
+        assert!(at("mic", 1000).plays(&line), "paused still shows where");
+        assert!(at("mix", 1999).plays(&line), "the mix holds every lane");
+        assert!(!at("speaker", 1500).plays(&line));
+        assert!(!at("mic", 999).plays(&line));
+        assert!(!at("mic", 2000).plays(&line));
     }
 }

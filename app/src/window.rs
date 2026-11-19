@@ -100,6 +100,8 @@ pub struct MainWindow {
     error: Option<String>,
     /// The player and the task that mirrors its state into `words.playback`.
     playback: Option<(crate::playback::Player, gpui::Task<()>)>,
+    /// Where the seek bar is being dragged to, until it is let go.
+    scrub: Option<u64>,
     words: words::WordsView,
     post_process_revision: u64,
     /// Where the session screen's right-click menu is open.
@@ -374,6 +376,7 @@ impl MainWindow {
             open_recording: None,
             speaker_editor: None,
             playback: None,
+            scrub: None,
             words: words::WordsView::default(),
             post_process_revision: 0,
             wrong,
