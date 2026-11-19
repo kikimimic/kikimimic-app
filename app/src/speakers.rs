@@ -59,6 +59,18 @@ impl SpeakerEditor {
     }
 
     pub(crate) fn set_word_playback(&mut self, playback: Option<Playback>, cx: &mut Context<Self>) {
+        let playing_line = |p: &Option<Playback>| {
+            p.as_ref()
+                .and_then(|p| self.raw.lines.iter().position(|l| p.plays(l)))
+        };
+        // Follow playback only when it moves to another line, so reading
+        // elsewhere is interrupted once per line rather than every tick.
+        let now = playing_line(&playback);
+        if let Some(i) = now
+            && now != playing_line(&self.word_playback)
+        {
+            self.scroll.scroll_to_item(i);
+        }
         self.word_playback = playback;
         cx.notify();
     }
@@ -690,6 +702,13 @@ impl Render for SpeakerEditor {
             if self.selected == Some(i) {
                 row = row.bg(theme::subtle());
             }
+            if self.word_playback.as_ref().is_some_and(|p| p.plays(line)) {
+                row = row
+                    .debug_selector(move || format!("playing-{i}"))
+                    .border_l_2()
+                    .border_color(theme::fg())
+                    .pl(px(8.));
+            }
             let timed = self.word_data.as_ref().and_then(|data| data.lines.get(i));
             // Words that read the same as the line replace it, so clicking
             // the text itself plays from there.
@@ -765,6 +784,31 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[gpui::test]
+    fn the_line_at_the_playback_position_is_marked(cx: &mut TestAppContext) {
+        let fixture = Fixture::new();
+        let (editor, cx) = cx.add_window_view(|_, cx| fixture.editor(cx));
+        let play = |position_ms, cx: &mut gpui::VisualTestContext| {
+            editor.update(cx, |editor, cx| {
+                editor.set_word_playback(
+                    Some(Playback {
+                        position_ms,
+                        playing: true,
+                        lane: "mix".into(),
+                    }),
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+        };
+        play(1200, cx);
+        assert!(cx.debug_bounds("playing-1").is_some());
+        assert!(cx.debug_bounds("playing-0").is_none());
+        play(950, cx);
+        assert!(cx.debug_bounds("playing-0").is_none(), "between lines");
+        assert!(cx.debug_bounds("playing-1").is_none());
     }
 
     #[gpui::test]

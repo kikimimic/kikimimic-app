@@ -361,11 +361,14 @@ impl MainWindow {
     }
 
     /// Play / stop and where playback is. Clicking a word in the transcript
-    /// plays from that word.
+    /// plays from that word; clicking or dragging along the bar moves there.
     fn player(&self, duration_ms: u64, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
         let playing = self.words.playback.as_ref().is_some_and(|p| p.playing);
-        let position = self.words.playback.as_ref().map_or(0, |p| p.position_ms);
+        let position = self
+            .scrub
+            .or(self.words.playback.as_ref().map(|p| p.position_ms))
+            .unwrap_or(0);
         let fraction = if duration_ms == 0 {
             0.
         } else {
@@ -386,18 +389,29 @@ impl MainWindow {
                     .into_any_element()
             })
             .child(
+                // Taller than the bar it draws, so it is easy to grab.
                 div()
+                    .debug_selector(|| "seek-bar".into())
                     .flex_1()
-                    .h(px(6.))
-                    .rounded(px(3.))
-                    .bg(theme::subtle())
+                    .h(px(16.))
+                    .flex()
+                    .items_center()
+                    .relative()
                     .child(
                         div()
-                            .h_full()
+                            .w_full()
+                            .h(px(6.))
                             .rounded(px(3.))
-                            .bg(theme::fg())
-                            .w(gpui::relative(fraction)),
-                    ),
+                            .bg(theme::subtle())
+                            .child(
+                                div()
+                                    .h_full()
+                                    .rounded(px(3.))
+                                    .bg(theme::fg())
+                                    .w(gpui::relative(fraction)),
+                            ),
+                    )
+                    .child(self.seek_area(duration_ms, cx)),
             )
             .child(
                 div()
@@ -405,6 +419,58 @@ impl MainWindow {
                     .text_color(theme::muted())
                     .child(format!("{} / {}", mm_ss(position), mm_ss(duration_ms))),
             )
+    }
+
+    /// Pressing on the bar starts a scrub, moving updates it, and letting go
+    /// plays from there. Listeners sit on the window so a drag past either
+    /// end keeps tracking.
+    fn seek_area(&self, duration_ms: u64, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity().downgrade();
+        gpui::canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal),
+            move |bounds, hitbox, window, _| {
+                window.set_cursor_style(gpui::CursorStyle::PointingHand, &hitbox);
+                let at = move |x| seek_ms(x, bounds, duration_ms);
+                window.on_mouse_event({
+                    let this = this.clone();
+                    move |e: &gpui::MouseDownEvent, phase, window, cx| {
+                        if phase.bubble()
+                            && e.button == gpui::MouseButton::Left
+                            && hitbox.is_hovered(window)
+                        {
+                            let _ = this.update(cx, |this, cx| {
+                                this.scrub = Some(at(e.position.x));
+                                cx.notify();
+                            });
+                        }
+                    }
+                });
+                window.on_mouse_event({
+                    let this = this.clone();
+                    move |e: &gpui::MouseMoveEvent, phase, _, cx| {
+                        if phase.bubble() && e.dragging() {
+                            let _ = this.update(cx, |this, cx| {
+                                if this.scrub.is_some() {
+                                    this.scrub = Some(at(e.position.x));
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    }
+                });
+                window.on_mouse_event(move |e: &gpui::MouseUpEvent, phase, _, cx| {
+                    if phase.bubble() && e.button == gpui::MouseButton::Left {
+                        let _ = this.update(cx, |this, cx| {
+                            if let Some(position) = this.scrub.take() {
+                                this.seek_playback(position, cx);
+                            }
+                        });
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0()
     }
 
     fn detail_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -697,4 +763,24 @@ fn stats_tab(ui: Ui, session: &library::Session) -> AnyElement {
             .child(ui.overlaps(m.overlaps)),
     )
     .into_any_element()
+}
+
+/// Where along a recording of `duration_ms` the point `x` on `bar` is.
+fn seek_ms(x: gpui::Pixels, bar: gpui::Bounds<gpui::Pixels>, duration_ms: u64) -> u64 {
+    let fraction = ((x - bar.left()) / bar.size.width).clamp(0., 1.);
+    (fraction as f64 * duration_ms as f64).round() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_point_on_the_seek_bar_is_that_share_of_the_recording_clamped_to_it() {
+        let bar = gpui::Bounds::new(gpui::point(px(100.), px(0.)), gpui::size(px(200.), px(6.)));
+        assert_eq!(seek_ms(px(150.), bar, 60_000), 15_000);
+        assert_eq!(seek_ms(px(50.), bar, 60_000), 0, "left of the bar");
+        assert_eq!(seek_ms(px(400.), bar, 60_000), 60_000, "right of the bar");
+        assert_eq!(seek_ms(px(150.), bar, 0), 0);
+    }
 }
