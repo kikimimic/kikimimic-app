@@ -49,6 +49,9 @@ pub struct ModelEntry {
     /// Opaque to the core; the engine parses it (e.g. `prompt = "plamo3"`).
     #[serde(default)]
     pub options: toml::Table,
+    /// The engine can re-recognize a recording with word times.
+    #[serde(default)]
+    pub word_timing: bool,
 }
 
 impl ModelEntry {
@@ -95,6 +98,23 @@ impl Catalog {
 
     pub fn models(&self) -> &[ModelEntry] {
         &self.models
+    }
+
+    /// The recognizer word timing runs on: `selected` when it can time words,
+    /// else the first `ready` one that can, else `selected` (whose engine then
+    /// says why it cannot).
+    pub fn word_timing_asr<'a>(
+        &'a self,
+        selected: &'a str,
+        ready: impl Fn(&str) -> bool,
+    ) -> &'a str {
+        if self.get(selected).is_some_and(|m| m.word_timing) {
+            return selected;
+        }
+        self.models
+            .iter()
+            .find(|m| m.kind == ModelKind::Asr && m.word_timing && ready(&m.id))
+            .map_or(selected, |m| m.id.as_str())
     }
 
     /// The entry and everything it requires, requirements first.
@@ -192,6 +212,17 @@ mod tests {
         assert_eq!(unheard("haas-ja-v1.0-q8_0"), ["en"]);
         assert_eq!(unheard("haas-ja-v1.0-q4_k"), ["en"]);
         assert!(unheard("whisper-large-v3-turbo-q8_0").is_empty());
+    }
+
+    #[test]
+    fn word_timing_runs_on_a_ready_model_that_can_time_words() {
+        let c = Catalog::builtin();
+        let whisper = "whisper-large-v3-turbo-q8_0";
+        let haas = "haas-ja-v1.0-q8_0";
+        assert_eq!(c.word_timing_asr(haas, |_| true), whisper);
+        assert_eq!(c.word_timing_asr(whisper, |_| false), whisper);
+        // Nothing ready can time words: keep the selection so its error explains why.
+        assert_eq!(c.word_timing_asr(haas, |id| id == haas), haas);
     }
 
     #[test]
