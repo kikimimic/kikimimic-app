@@ -12,6 +12,7 @@ id = "whisper-large-v3-turbo-q8_0"
 kind = "asr"
 engine = "whisper"
 title = "Whisper large-v3-turbo (q8_0)"
+word_timing = true
 license = { name = "MIT", url = "https://github.com/openai/whisper/blob/main/LICENSE" }
 # q8_0, not q5_0: on Metal q5_0 decodes slower (docs/step0-results.md).
 requires = ["silero-vad-v5.1.2"]

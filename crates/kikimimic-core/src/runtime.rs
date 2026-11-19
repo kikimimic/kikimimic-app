@@ -32,7 +32,7 @@ use crate::engine::{
 use crate::event::{Event, Phase, PostProcessState, StatusView};
 use crate::glossary::Keyword;
 use crate::settings::Settings;
-use crate::store::ModelStore;
+use crate::store::{ModelState, ModelStore};
 
 /// Opens OS audio sources. Implemented per platform in `kikimimic-capture`.
 pub trait CaptureBackend: Send {
@@ -152,6 +152,7 @@ impl Kikimimic {
             diarizer: config.diarizer.map(|d| Arc::new(Mutex::new(d))),
             postprocessing: Arc::new(AtomicBool::new(false)),
             languages: Arc::clone(&settings),
+            store: store.clone(),
             imports: Arc::clone(&imports),
             import_worker_running: false,
             tx: tx.clone(),
@@ -308,6 +309,7 @@ struct Shell {
     /// A recording is being diarized; sessions wait for it.
     postprocessing: Arc<AtomicBool>,
     languages: Arc<Mutex<Settings>>,
+    store: ModelStore,
     imports: Arc<Mutex<crate::imports::Queue>>,
     import_worker_running: bool,
     tx: Sender<Msg>,
@@ -468,7 +470,14 @@ impl Shell {
             self.postprocessing.clone(),
         );
         let base = self.recordings_dir.clone();
-        let model = self.languages.lock().unwrap().asr_model.clone();
+        let selected = self.languages.lock().unwrap().asr_model.clone();
+        let model = self
+            .store
+            .catalog()
+            .word_timing_asr(&selected, |id| {
+                self.store.state(id) == Ok(ModelState::Ready)
+            })
+            .to_string();
         let requested = dir.clone();
         let _ = events.send(event(PostProcessState::Running));
         let spawn = thread::Builder::new()
