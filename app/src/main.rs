@@ -11,6 +11,7 @@ mod google;
 mod i18n;
 mod menus;
 mod paths;
+mod playback;
 mod speakers;
 mod state;
 mod theme;

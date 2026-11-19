@@ -98,8 +98,8 @@ pub struct MainWindow {
     wrong: Entity<TextInput>,
     right: Entity<TextInput>,
     error: Option<String>,
-    playback: Option<std::process::Child>,
-    playback_status: Option<std::path::PathBuf>,
+    /// The player and the task that mirrors its state into `words.playback`.
+    playback: Option<(crate::playback::Player, gpui::Task<()>)>,
     words: words::WordsView,
     post_process_revision: u64,
     /// Where the session screen's right-click menu is open.
@@ -374,7 +374,6 @@ impl MainWindow {
             open_recording: None,
             speaker_editor: None,
             playback: None,
-            playback_status: None,
             words: words::WordsView::default(),
             post_process_revision: 0,
             wrong,
@@ -640,12 +639,6 @@ impl Render for MainWindow {
             )
             .child(self.footer(cx))
             .children(palette)
-    }
-}
-
-impl Drop for MainWindow {
-    fn drop(&mut self) {
-        self.stop_playback();
     }
 }
 

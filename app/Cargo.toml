@@ -35,6 +35,8 @@ sha2 = "0.10"
 base64 = "0.22"
 url = "2"
 getrandom = "0.3"
+# Only the device output and hound WAV decoding; recordings are always WAV.
+rodio = { version = "0.23", default-features = false, features = ["playback", "hound"] }
 
 [dev-dependencies]
 hound = "3.5"
