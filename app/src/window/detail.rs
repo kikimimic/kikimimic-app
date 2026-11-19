@@ -257,17 +257,32 @@ impl MainWindow {
             DetailTab::Export => self.export_tab(&dir, cx),
             DetailTab::Stats => stats_tab(ui, session),
         };
+        // The header stays put; only what is under it moves. The transcript
+        // scrolls itself so "next unreviewed" can bring a line into view.
+        let fills = self.detail_tab == DetailTab::Text;
         div()
-            .id("recording")
             .size_full()
-            .overflow_y_scroll()
+            .flex()
+            .flex_col()
             .child(
                 div()
+                    .flex_none()
                     .border_b_1()
                     .border_color(theme::border())
                     .child(super::shell::column().pb_3().child(header)),
             )
-            .child(super::shell::column().child(body))
+            .child(
+                div()
+                    .id("recording")
+                    .flex_1()
+                    .min_h_0()
+                    .when(!fills, |d| d.overflow_y_scroll())
+                    .child(
+                        super::shell::column()
+                            .when(fills, |d| d.h_full().pb_0())
+                            .child(body),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -415,12 +430,12 @@ impl MainWindow {
     }
 
     fn text_tab(&self, dir: &Path, cx: &mut Context<Self>) -> AnyElement {
-        let mut col = div().flex().flex_col().gap_2();
+        let mut col = div().flex().flex_col().gap_2().h_full().min_h_0();
         if self.words.data.is_none() {
             col = col.child(self.word_maker(dir.to_path_buf(), cx));
         }
         if let Some(editor) = &self.speaker_editor {
-            col = col.child(editor.clone());
+            col = col.child(div().flex_1().min_h_0().child(editor.clone()));
         }
         col.into_any_element()
     }
@@ -435,7 +450,8 @@ impl MainWindow {
             col = col.child(strip);
         }
         if let Some(editor) = &self.speaker_editor {
-            col = col.child(editor.clone());
+            // The page scrolls here, so the transcript gets a height of its own.
+            col = col.child(div().h(px(480.)).child(editor.clone()));
         }
         col.into_any_element()
     }

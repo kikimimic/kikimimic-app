@@ -30,6 +30,11 @@ pub struct SpeakerEditor {
     participant: Option<String>,
     participants_open: bool,
     selected: Option<usize>,
+    /// The line whose speaker menu is open.
+    speaker_menu: Option<usize>,
+    /// The menu a click outside just closed, so the same click on its own
+    /// speaker does not open it again.
+    menu_closed: Option<(usize, gpui::Point<gpui::Pixels>)>,
     scroll: ScrollHandle,
     message: Option<String>,
     error: Option<String>,
@@ -73,6 +78,8 @@ impl SpeakerEditor {
             participant: None,
             participants_open: false,
             selected: None,
+            speaker_menu: None,
+            menu_closed: None,
             scroll: ScrollHandle::new(),
             message: None,
             error: None,
@@ -371,9 +378,88 @@ impl SpeakerEditor {
     }
 }
 
+impl SpeakerEditor {
+    /// Who said line `i`, as a menu under its speaker: pick one and it closes.
+    fn speaker_menu_list(
+        &self,
+        i: usize,
+        state: &ReviewState,
+        participants: &BTreeSet<String>,
+        doc: &Annotations,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let reviewed = state.reviewed;
+        let item = |id: gpui::SharedString, label: String, color, current: bool| {
+            div()
+                .id(id)
+                .flex()
+                .gap_2()
+                .px_2()
+                .py(px(3.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_color(color)
+                .hover(|s| s.bg(theme::subtle()))
+                .child(div().w(px(10.)).child(if current { "✓" } else { "" }))
+                .child(label)
+        };
+        let mut menu = div()
+            .flex()
+            .flex_col()
+            .min_w(px(140.))
+            .p_1()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(theme::border())
+            .rounded(px(6.))
+            .shadow_md()
+            .text_size(px(12.))
+            .on_mouse_down_out(cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                this.speaker_menu = None;
+                this.menu_closed = Some((i, e.position));
+                cx.notify();
+            }));
+        for (n, id) in participants.iter().enumerate() {
+            let pick = id.clone();
+            menu = menu.child(
+                item(
+                    format!("choice-{i}-{n}").into(),
+                    doc.display_name(&self.source, id).to_string(),
+                    speaker_color(n),
+                    state.speaker.as_ref() == Some(id),
+                )
+                .debug_selector(move || format!("choice-{i}-{n}"))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.speaker_menu = None;
+                    this.set_row(i, Some(pick.clone()), reviewed, cx)
+                })),
+            );
+        }
+        menu = menu.child(
+            item(
+                format!("unassign-{i}").into(),
+                "未割当".into(),
+                theme::muted(),
+                state.speaker.is_none(),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.speaker_menu = None;
+                this.set_row(i, None, reviewed, cx)
+            })),
+        );
+        // Drawn above the list so the scrolling transcript cannot clip it.
+        div()
+            .absolute()
+            .top(px(20.))
+            .left_0()
+            .child(gpui::deferred(gpui::anchored().snap_to_window().child(menu)).with_priority(1))
+            .into_any_element()
+    }
+}
+
 impl Render for SpeakerEditor {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut col = div().flex().flex_col().gap_2().w_full();
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut col = div().flex().flex_col().gap_2().w_full().h_full().min_h_0();
         let error = self
             .error
             .as_ref()
@@ -386,9 +472,14 @@ impl Render for SpeakerEditor {
         let Some(file) = &self.file else {
             // Corrupt annotations must not hide the automatic evidence.
             col = col.children(error).children(message);
+            let mut lines = div()
+                .id("raw-transcript")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll();
             for (i, line) in self.raw.lines.iter().enumerate() {
                 let start = line.start_ms;
-                col = col.child(
+                lines = lines.child(
                     div()
                         .flex()
                         .flex_col()
@@ -404,7 +495,7 @@ impl Render for SpeakerEditor {
                         )),
                 );
             }
-            return col.into_any_element();
+            return col.child(lines).into_any_element();
         };
         let doc = &file.annotations;
         let report = doc.reconcile(&self.raw.lines, &self.source);
@@ -498,19 +589,16 @@ impl Render for SpeakerEditor {
             }
             col = col.child(warning);
         }
-        // Tall enough to read a stretch of the meeting without the page
-        // scrolling too; the list keeps its own scroll for "next unreviewed".
-        let height = window.viewport_size().height;
-        let max_h = if height > px(570.) {
-            height - px(330.)
-        } else {
-            px(240.)
-        };
+        // Fills what the page leaves it and scrolls on its own, so "next
+        // unreviewed" can bring a line into view under a header that stays.
         let mut transcript = div()
             .id("speaker-transcript")
+            .debug_selector(|| "speaker-transcript".into())
+            .flex_1()
+            .min_h_0()
             .flex()
             .flex_col()
-            .max_h(max_h)
+            .pb(px(18.))
             .overflow_y_scroll()
             .track_scroll(&self.scroll);
         for (i, (line, state)) in self.raw.lines.iter().zip(&report.rows).enumerate() {
@@ -537,25 +625,34 @@ impl Render for SpeakerEditor {
                 )
                 .child(
                     div()
-                        .id(("assign", i))
-                        .debug_selector(move || format!("assign-{i}"))
-                        .px_1()
-                        .rounded(px(4.))
-                        .border_1()
-                        .border_color(theme::border())
-                        .cursor_pointer()
-                        .text_color(color)
-                        .when(self.selected == Some(i), |d| d.bg(theme::subtle()))
-                        .hover(|s| s.border_color(rgb(0x8c959f)))
-                        .child(format!("{who} ▾"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.selected = if this.selected == Some(i) {
-                                None
-                            } else {
-                                Some(i)
-                            };
-                            cx.notify();
-                        })),
+                        .relative()
+                        .child(
+                            div()
+                                .id(("assign", i))
+                                .debug_selector(move || format!("assign-{i}"))
+                                .px_1()
+                                .rounded(px(4.))
+                                .border_1()
+                                .border_color(theme::border())
+                                .cursor_pointer()
+                                .text_color(color)
+                                .hover(|s| s.border_color(rgb(0x8c959f)))
+                                .child(format!("{who} ▾"))
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                        if this.menu_closed.take() == Some((i, e.position)) {
+                                            return;
+                                        }
+                                        this.speaker_menu = Some(i);
+                                        this.selected = Some(i);
+                                        cx.notify();
+                                    }),
+                                ),
+                        )
+                        .when(self.speaker_menu == Some(i), |d| {
+                            d.child(self.speaker_menu_list(i, state, &participants, doc, cx))
+                        }),
                 )
                 .when(reviewed, |d| {
                     d.child(div().text_color(theme::ok()).child("✓ 校閲済み"))
@@ -591,38 +688,7 @@ impl Render for SpeakerEditor {
                 .border_color(theme::subtle())
                 .child(head);
             if self.selected == Some(i) {
-                let mut choices = div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .items_center()
-                    .text_size(px(12.))
-                    .child(div().text_color(theme::muted()).child("この発言の話者:"));
-                for (n, id) in participants.iter().enumerate() {
-                    let pick = id.clone();
-                    choices = choices.child(
-                        small_button(
-                            gpui::SharedString::from(format!("choice-{i}-{n}")),
-                            doc.display_name(&self.source, id).to_string(),
-                            state.speaker.as_ref() == Some(id),
-                        )
-                        .text_color(if state.speaker.as_ref() == Some(id) {
-                            rgb(0xffffff)
-                        } else {
-                            speaker_color(n)
-                        })
-                        .debug_selector(move || format!("choice-{i}-{n}"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.set_row(i, Some(pick.clone()), reviewed, cx)
-                        })),
-                    );
-                }
-                choices = choices.child(
-                    small_button(("unassign", i), "未割当", state.speaker.is_none()).on_click(
-                        cx.listener(move |this, _, _, cx| this.set_row(i, None, reviewed, cx)),
-                    ),
-                );
-                row = row.child(choices);
+                row = row.bg(theme::subtle());
             }
             let timed = self.word_data.as_ref().and_then(|data| data.lines.get(i));
             // Words that read the same as the line replace it, so clicking
@@ -1075,6 +1141,38 @@ mod tests {
             cx.run_until_parked();
         }
         assert!(cx.debug_bounds("speaker-save").is_some(), "unsaved edit");
+        assert!(
+            cx.debug_bounds("choice-0-1").is_none(),
+            "menu closes on pick"
+        );
+        let bounds = cx.debug_bounds("assign-0").unwrap();
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("choice-0-1").is_some(), "menu reopens");
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("choice-0-1").is_none(),
+            "second click closes"
+        );
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+        let elsewhere = cx.debug_bounds("assign-1").unwrap();
+        cx.simulate_click(
+            elsewhere.center() + gpui::point(px(200.), px(0.)),
+            Default::default(),
+        );
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("choice-0-1").is_none(),
+            "outside click closes"
+        );
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("choice-0-1").is_some(),
+            "opens on first click"
+        );
         let bounds = cx.debug_bounds("speaker-names").unwrap();
         cx.simulate_click(bounds.center(), Default::default());
         cx.run_until_parked();
