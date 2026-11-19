@@ -10,9 +10,10 @@ use gpui::{
 use kikimimic_core::annotations::{self, AnnotationFile, Annotations, ReviewState};
 use kikimimic_core::library::{self, Session};
 
+use crate::theme;
 use crate::widgets::text_input::TextInput;
 use crate::window::words::{self, Playback, WordAction};
-use crate::window::{button, mm_ss};
+use crate::window::{button, mm_ss, small_button};
 use kikimimic_core::word_timing::WordTiming;
 
 pub struct Seek(pub u64);
@@ -70,7 +71,7 @@ impl SpeakerEditor {
             name_baseline: String::new(),
             name_source: String::new(),
             participant: None,
-            participants_open: true,
+            participants_open: false,
             selected: None,
             scroll: ScrollHandle::new(),
             message: None,
@@ -110,9 +111,7 @@ impl SpeakerEditor {
     }
 
     pub fn warn_unsaved(&mut self, cx: &mut Context<Self>) {
-        self.message = Some(
-            "未保存の変更があります。保存するか「変更を破棄して再読込」を選んでください。".into(),
-        );
+        self.message = Some("未保存の変更があります。「保存」か「破棄」を選んでください。".into());
         cx.notify();
     }
 
@@ -293,51 +292,100 @@ fn next_unreviewed(states: &[ReviewState], current: Option<usize>) -> Option<usi
         .find(|&i| !states[i].reviewed)
 }
 
-impl Render for SpeakerEditor {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut col = div().flex().flex_col().gap_2().w_full();
-        let dirty = self.is_dirty(cx);
-        let mut toolbar = div()
+/// What an unassigned line is called: whose side of the call it came from.
+fn lane_label(lane: &str) -> &str {
+    match lane {
+        "mic" => "自分",
+        "speaker" => "相手",
+        other => other,
+    }
+}
+
+/// One colour per speaker, so a page of lines can be read by who spoke.
+fn speaker_color(index: usize) -> gpui::Rgba {
+    const COLORS: [u32; 6] = [0x8250df, 0xbc4c00, 0x1a7f37, 0xbf3989, 0x0550ae, 0x6e7781];
+    rgb(COLORS[index % COLORS.len()])
+}
+
+impl SpeakerEditor {
+    /// Who said each line, how far review has got, and the controls for both.
+    fn top_bar(
+        &self,
+        reviewed: usize,
+        total: usize,
+        has_participants: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let mut bar = div()
             .flex()
             .flex_wrap()
-            .gap_2()
             .items_center()
-            .child(
-                button("speaker-save", "話者修正を保存", false)
-                    .debug_selector(|| "speaker-save".into())
-                    .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-            )
-            .child(
-                button("speaker-reload", "変更を破棄して再読込", false)
-                    .on_click(cx.listener(|this, _, _, cx| this.discard_and_reload(cx))),
-            )
+            .gap_2()
+            .text_size(px(12.))
             .child(
                 div()
-                    .text_size(px(12.))
-                    .text_color(rgb(0x57606a))
-                    .child(if dirty {
-                        "未保存の変更あり · 出力には保存済みの内容を使用"
+                    .text_color(theme::muted())
+                    .child(if self.word_data.is_some() {
+                        "単語をクリックするとそこから再生 · 時刻は推定"
                     } else {
-                        "保存済み · 確認は任意（未確認でも出力できます）"
+                        "時刻をクリックするとそこから再生"
                     }),
-            );
-        if self.file.is_some() {
-            toolbar = toolbar.child(
-                button("next-unreviewed", "次の未確認を聞く", false)
+            )
+            .child(div().flex_1());
+        if self.is_dirty(cx) {
+            // Exports read what is saved, so an unsaved edit is worth a word.
+            bar = bar
+                .child(div().text_color(theme::warn()).child("未保存"))
+                .child(
+                    small_button("speaker-reload", "破棄", false)
+                        .on_click(cx.listener(|this, _, _, cx| this.discard_and_reload(cx))),
+                )
+                .child(
+                    small_button("speaker-save", "保存", true)
+                        .debug_selector(|| "speaker-save".into())
+                        .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
+                );
+        }
+        bar = bar
+            .child(
+                div()
+                    .text_color(theme::muted())
+                    .child(format!("校閲 {reviewed}/{total}")),
+            )
+            .child(
+                small_button("next-unreviewed", "次の未校閲へ", false)
                     .debug_selector(|| "next-unreviewed".into())
                     .on_click(cx.listener(|this, _, _, cx| this.next_unreviewed(cx))),
             );
+        if has_participants {
+            bar = bar.child(
+                small_button("speaker-names", "話者名…", self.participants_open)
+                    .debug_selector(|| "speaker-names".into())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.participants_open = !this.participants_open;
+                        cx.notify();
+                    })),
+            );
         }
-        col = col.child(toolbar);
-        if let Some(error) = &self.error {
-            col = col.child(div().text_color(rgb(0xcf222e)).child(error.clone()));
-        }
-        if let Some(message) = &self.message {
-            col = col.child(div().text_color(rgb(0x57606a)).child(message.clone()));
-        }
+        bar
+    }
+}
+
+impl Render for SpeakerEditor {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut col = div().flex().flex_col().gap_2().w_full();
+        let error = self
+            .error
+            .as_ref()
+            .map(|e| div().text_color(theme::danger()).child(e.clone()));
+        let message = self
+            .message
+            .as_ref()
+            .map(|m| div().text_color(theme::muted()).child(m.clone()));
 
         let Some(file) = &self.file else {
             // Corrupt annotations must not hide the automatic evidence.
+            col = col.children(error).children(message);
             for (i, line) in self.raw.lines.iter().enumerate() {
                 let start = line.start_ms;
                 col = col.child(
@@ -367,48 +415,46 @@ impl Render for SpeakerEditor {
             .filter_map(|l| l.speaker.clone())
             .chain(report.rows.iter().filter_map(|r| r.speaker.clone()))
             .collect::<BTreeSet<_>>();
-        col = col.child(
-            button(
-                "participants",
-                if self.participants_open {
-                    "▾ 参加者 · 会議内で名前付け"
-                } else {
-                    "▸ 参加者 · 会議内で名前付け"
-                },
-                false,
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.participants_open = !this.participants_open;
-                cx.notify();
-            })),
+        let color_of = |id: &str| {
+            participants
+                .iter()
+                .position(|p| p == id)
+                .map_or(theme::muted(), speaker_color)
+        };
+        let reviewed_count = report.rows.iter().filter(|r| r.reviewed).count();
+        let top_bar = self.top_bar(
+            reviewed_count,
+            report.rows.len(),
+            !participants.is_empty(),
+            cx,
         );
-        if self.participants_open {
+        col = col.child(top_bar).children(error).children(message);
+        if self.participants_open && !participants.is_empty() {
             let mut panel = div()
                 .flex()
                 .flex_col()
                 .gap_2()
                 .p_2()
+                .text_size(px(12.))
                 .border_1()
-                .border_color(rgb(0xd0d7de))
+                .border_color(theme::border())
                 .rounded(px(6.));
             let mut ids = div().flex().flex_wrap().gap_2();
             for (i, id) in participants.iter().enumerate() {
                 let speaker = id.clone();
                 ids = ids.child(
-                    button(
+                    small_button(
                         ("participant", i),
-                        format!("{} → {}", id, doc.display_name(&self.source, id)),
+                        format!("{id} → {}", doc.display_name(&self.source, id)),
                         self.participant.as_ref() == Some(id),
                     )
+                    .debug_selector(move || format!("participant-{i}"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.choose_participant(speaker.clone(), cx)
                     })),
                 );
             }
             panel = panel.child(ids);
-            if participants.is_empty() {
-                panel = panel.child("話者分離後に自動話者IDへ名前を付けられます。");
-            }
             if let Some(id) = &self.participant {
                 panel = panel
                     .child(format!(
@@ -418,7 +464,7 @@ impl Render for SpeakerEditor {
             }
             for &i in &report.inactive_names {
                 let name = &doc.names[i];
-                panel = panel.child(div().text_size(px(12.)).text_color(rgb(0x9a6700))
+                panel = panel.child(div().text_color(theme::warn())
                     .child(format!("旧話者分離の名前（未適用）: {} → {}。現在のIDを聞き直して名前を設定してください。", name.speaker, name.name)));
             }
             col = col.child(panel);
@@ -429,7 +475,7 @@ impl Render for SpeakerEditor {
                 .flex_col()
                 .gap_1()
                 .text_size(px(12.))
-                .text_color(rgb(0x9a6700))
+                .text_color(theme::warn())
                 .child(format!(
                     "再確認が必要な修正 {} 件（元の修正は保持されています）",
                     report.unapplied.len()
@@ -452,49 +498,56 @@ impl Render for SpeakerEditor {
             }
             col = col.child(warning);
         }
-        let unreviewed = report.rows.iter().filter(|r| !r.reviewed).count();
-        col = col.child(div().text_size(px(12.)).text_color(rgb(0x57606a))
-            .child(format!("未確認 {unreviewed} / {} 発言 · 名前は参加者一覧、誤割当ては「この発言だけ」から修正", report.rows.len())));
+        // Tall enough to read a stretch of the meeting without the page
+        // scrolling too; the list keeps its own scroll for "next unreviewed".
+        let height = window.viewport_size().height;
+        let max_h = if height > px(570.) {
+            height - px(330.)
+        } else {
+            px(240.)
+        };
         let mut transcript = div()
             .id("speaker-transcript")
             .flex()
             .flex_col()
-            .max_h(px(420.))
+            .max_h(max_h)
             .overflow_y_scroll()
             .track_scroll(&self.scroll);
         for (i, (line, state)) in self.raw.lines.iter().zip(&report.rows).enumerate() {
             let start = line.start_ms;
-            let mut meta = div()
+            let reviewed = state.reviewed;
+            let selected_speaker = state.speaker.clone();
+            let (who, color) = match &state.speaker {
+                Some(id) => (doc.display_name(&self.source, id).to_string(), color_of(id)),
+                None => (lane_label(&line.lane).to_string(), theme::muted()),
+            };
+            let head = div()
                 .flex()
-                .flex_wrap()
-                .gap_2()
                 .items_center()
+                .gap_2()
                 .text_size(px(12.))
                 .child(
-                    button(("seek", i), mm_ss(start), false)
+                    div()
+                        .id(("seek", i))
+                        .cursor_pointer()
+                        .text_color(theme::muted())
+                        .hover(|s| s.text_color(theme::fg()).underline())
+                        .child(mm_ss(start))
                         .on_click(cx.listener(move |_, _, _, cx| cx.emit(Seek(start)))),
-                );
-            if let Some(id) = &state.speaker {
-                let id = id.clone();
-                meta = meta.child(
-                    button(
-                        ("speaker-name", i),
-                        format!("{} ({id})", doc.display_name(&self.source, &id)),
-                        false,
-                    )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.choose_participant(id.clone(), cx)),
-                    ),
-                );
-            } else {
-                meta = meta.child(format!("{} · 未割当", line.lane));
-            }
-            let selected_speaker = state.speaker.clone();
-            let reviewed = state.reviewed;
-            meta = meta
+                )
                 .child(
-                    button(("assign", i), "この発言だけ", self.selected == Some(i))
+                    div()
+                        .id(("assign", i))
                         .debug_selector(move || format!("assign-{i}"))
+                        .px_1()
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(theme::border())
+                        .cursor_pointer()
+                        .text_color(color)
+                        .when(self.selected == Some(i), |d| d.bg(theme::subtle()))
+                        .hover(|s| s.border_color(rgb(0x8c959f)))
+                        .child(format!("{who} ▾"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.selected = if this.selected == Some(i) {
                                 None
@@ -504,71 +557,80 @@ impl Render for SpeakerEditor {
                             cx.notify();
                         })),
                 )
+                .when(reviewed, |d| {
+                    d.child(div().text_color(theme::ok()).child("✓ 校閲済み"))
+                })
+                .child(div().flex_1())
                 .child(
-                    button(
-                        ("review", i),
-                        if reviewed {
-                            "✓ 確認済み"
+                    div()
+                        .id(("review", i))
+                        .debug_selector(move || format!("review-{i}"))
+                        .px_2()
+                        .rounded(px(4.))
+                        .cursor_pointer()
+                        .text_color(theme::muted())
+                        .opacity(0.55)
+                        .group_hover("utt", |s| s.opacity(1.))
+                        .hover(|s| s.bg(theme::subtle()).text_color(theme::fg()))
+                        .child(if reviewed {
+                            "校閲を外す"
                         } else {
-                            "○ 未確認"
-                        },
-                        reviewed,
-                    )
-                    .debug_selector(move || format!("review-{i}"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_row(i, selected_speaker.clone(), !reviewed, cx)
-                    })),
+                            "校閲済みにする"
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_row(i, selected_speaker.clone(), !reviewed, cx)
+                        })),
                 );
             let mut row = div()
+                .group("utt")
                 .flex()
                 .flex_col()
                 .gap_1()
-                .py_2()
-                .px_2()
+                .py(px(6.))
                 .border_b_1()
-                .border_color(rgb(0xd0d7de));
-            if self.selected == Some(i) {
-                row = row.bg(rgb(0xf6f8fa));
-            }
-            row = row.child(meta).child(line.text.clone());
-            if let Some(t) = &line.translation {
-                row = row.child(div().text_color(rgb(0x0969da)).child(t.clone()));
-            }
-            if state.needs_reconfirmation {
-                row = row.child(div().text_color(rgb(0x9a6700)).text_size(px(12.))
-                    .child(format!("旧割当て {} は再確認が必要です。現在の結果で話者を選び直してください。", state.pending_speaker.as_deref().unwrap_or("未割当"))));
-            }
+                .border_color(theme::subtle())
+                .child(head);
             if self.selected == Some(i) {
                 let mut choices = div()
                     .flex()
                     .flex_wrap()
-                    .gap_2()
+                    .gap_1()
                     .items_center()
-                    .child("この発言だけの割当て:");
+                    .text_size(px(12.))
+                    .child(div().text_color(theme::muted()).child("この発言の話者:"));
                 for (n, id) in participants.iter().enumerate() {
-                    let id = id.clone();
-                    let reviewed = state.reviewed;
+                    let pick = id.clone();
                     choices = choices.child(
-                        button(
+                        small_button(
                             gpui::SharedString::from(format!("choice-{i}-{n}")),
-                            format!("{} ({id})", doc.display_name(&self.source, &id)),
-                            state.speaker.as_ref() == Some(&id),
+                            doc.display_name(&self.source, id).to_string(),
+                            state.speaker.as_ref() == Some(id),
                         )
+                        .text_color(if state.speaker.as_ref() == Some(id) {
+                            rgb(0xffffff)
+                        } else {
+                            speaker_color(n)
+                        })
                         .debug_selector(move || format!("choice-{i}-{n}"))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.set_row(i, Some(id.clone()), reviewed, cx)
+                            this.set_row(i, Some(pick.clone()), reviewed, cx)
                         })),
                     );
                 }
-                let reviewed = state.reviewed;
                 choices = choices.child(
-                    button(("unassign", i), "未割当", state.speaker.is_none()).on_click(
+                    small_button(("unassign", i), "未割当", state.speaker.is_none()).on_click(
                         cx.listener(move |this, _, _, cx| this.set_row(i, None, reviewed, cx)),
                     ),
                 );
                 row = row.child(choices);
             }
-            if let Some(timed) = self.word_data.as_ref().and_then(|data| data.lines.get(i)) {
+            let timed = self.word_data.as_ref().and_then(|data| data.lines.get(i));
+            // Words that read the same as the line replace it, so clicking
+            // the text itself plays from there.
+            if !timed.is_some_and(|t| words::reads_as(line, t) && !self.word_editing) {
+                row = row.child(line.text.clone());
+            }
+            if let Some(timed) = timed {
                 row = row.child(words::word_line(
                     i,
                     line,
@@ -577,6 +639,13 @@ impl Render for SpeakerEditor {
                     self.word_playback.as_ref(),
                     cx,
                 ));
+            }
+            if let Some(t) = &line.translation {
+                row = row.child(div().text_color(rgb(0x0969da)).child(t.clone()));
+            }
+            if state.needs_reconfirmation {
+                row = row.child(div().text_color(theme::warn()).text_size(px(12.))
+                    .child(format!("旧割当て {} は再確認が必要です。現在の結果で話者を選び直してください。", state.pending_speaker.as_deref().unwrap_or("未割当"))));
             }
             transcript = transcript.child(row);
         }
@@ -989,5 +1058,33 @@ mod tests {
         assert_eq!(states[0].speaker.as_deref(), Some("speaker_1"));
         assert_eq!(next_unreviewed(&[], None), None);
         assert_eq!(next_unreviewed(&states[1..2], None), None);
+    }
+
+    #[gpui::test]
+    fn saving_and_naming_stay_out_of_the_way_until_there_is_something_to_do(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        let (_editor, cx) = cx.add_window_view(|_, cx| fixture.editor(cx));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("speaker-save").is_none(), "nothing to save");
+        assert!(cx.debug_bounds("participant-0").is_none(), "names folded");
+        for selector in ["assign-0", "choice-0-1"] {
+            let bounds = cx.debug_bounds(selector).expect(selector);
+            cx.simulate_click(bounds.center(), Default::default());
+            cx.run_until_parked();
+        }
+        assert!(cx.debug_bounds("speaker-save").is_some(), "unsaved edit");
+        let bounds = cx.debug_bounds("speaker-names").unwrap();
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("participant-0").is_some());
+    }
+
+    #[test]
+    fn an_unassigned_line_is_called_by_whose_side_it_came_from() {
+        assert_eq!(lane_label("mic"), "自分");
+        assert_eq!(lane_label("speaker"), "相手");
+        assert_eq!(lane_label("mix"), "mix");
     }
 }

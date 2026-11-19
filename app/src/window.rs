@@ -146,6 +146,19 @@ pub(crate) fn button(
         .child(label.into())
 }
 
+/// A button for tools that sit beside content rather than lead the screen.
+pub(crate) fn small_button(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    button(id, label, selected)
+        .px_2()
+        .py(px(1.))
+        .rounded(px(5.))
+        .text_size(px(12.))
+}
+
 /// The one red button: stopping a recording.
 pub(crate) fn stop_button(
     id: impl Into<gpui::ElementId>,
