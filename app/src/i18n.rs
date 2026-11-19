@@ -166,7 +166,6 @@ texts! {
     all_done: "Done", "完了";
     play: "▶ Play", "▶ 再生";
     pause: "■ Stop", "■ 停止";
-    click_a_word: "Click a word to play from it", "単語をクリックするとそこから再生";
     tab_text: "Transcript", "本文";
     tab_subtitles: "Subtitles", "字幕";
     tab_stats: "Statistics", "統計";

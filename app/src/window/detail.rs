@@ -247,13 +247,7 @@ impl MainWindow {
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_ask(cx))),
                     ),
             )
-            .child(
-                div()
-                    .text_size(px(12.5))
-                    .text_color(theme::muted())
-                    .child(format!("{when} · {}", mm_ss(session.duration_ms))),
-            )
-            .child(self.pipeline(&dir, session.duration_ms, cx))
+            .child(self.pipeline(&dir, format!("{when} · {}", mm_ss(session.duration_ms)), cx))
             .child(self.player(session.duration_ms, cx))
             .child(self.detail_tabs(cx));
         let body: AnyElement = match self.detail_tab {
@@ -263,23 +257,38 @@ impl MainWindow {
             DetailTab::Export => self.export_tab(&dir, cx),
             DetailTab::Stats => stats_tab(ui, session),
         };
+        // The header stays put; only what is under it moves. The transcript
+        // scrolls itself so "next unreviewed" can bring a line into view.
+        let fills = self.detail_tab == DetailTab::Text;
         div()
-            .id("recording")
             .size_full()
-            .overflow_y_scroll()
+            .flex()
+            .flex_col()
             .child(
                 div()
+                    .flex_none()
                     .border_b_1()
                     .border_color(theme::border())
                     .child(super::shell::column().pb_3().child(header)),
             )
-            .child(super::shell::column().child(body))
+            .child(
+                div()
+                    .id("recording")
+                    .flex_1()
+                    .min_h_0()
+                    .when(!fills, |d| d.overflow_y_scroll())
+                    .child(
+                        super::shell::column()
+                            .when(fills, |d| d.h_full().pb_0())
+                            .child(body),
+                    ),
+            )
             .into_any_element()
     }
 
     /// The four post-processing steps, the current one highlighted, and the
     /// button that does it.
-    fn pipeline(&self, dir: &Path, duration_ms: u64, cx: &mut Context<Self>) -> impl IntoElement {
+    fn pipeline(&self, dir: &Path, lead: String, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
         let stage = self.stages.get(dir).copied().flatten();
         let diarizing = matches!(&self.state.read(cx).post_process, Some((d, PostProcessState::Running)) if d == dir);
@@ -289,7 +298,7 @@ impl MainWindow {
             .gap_2()
             .text_size(px(12.))
             .text_color(theme::muted())
-            .child(format!("{} · ", mm_ss(duration_ms)));
+            .child(div().mr_2().child(lead));
         for (i, (s, label)) in stage_steps(ui).into_iter().enumerate() {
             if i > 0 {
                 row = row.child("›");
@@ -319,13 +328,13 @@ impl MainWindow {
             Some(Stage::Speakers) => {
                 let d = dir.to_path_buf();
                 Some(
-                    button("step-speakers", ui.identify_speakers(), true)
+                    small_button("step-speakers", ui.identify_speakers(), true)
                         .on_click(cx.listener(move |this, _, _, _| this.kkm.diarize(d.clone())))
                         .into_any_element(),
                 )
             }
             Some(Stage::Export) => Some(
-                button("step-export", ui.write_pending(), true)
+                small_button("step-export", ui.write_pending(), true)
                     .on_click(cx.listener(|this, _, _, cx| this.export_pending(cx)))
                     .into_any_element(),
             ),
@@ -399,12 +408,6 @@ impl MainWindow {
                     .text_color(theme::muted())
                     .child(format!("{} / {}", mm_ss(position), mm_ss(duration_ms))),
             )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(ui.click_a_word()),
-            )
     }
 
     fn detail_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -427,12 +430,12 @@ impl MainWindow {
     }
 
     fn text_tab(&self, dir: &Path, cx: &mut Context<Self>) -> AnyElement {
-        let mut col = div().flex().flex_col().gap_2();
+        let mut col = div().flex().flex_col().gap_2().h_full().min_h_0();
         if self.words.data.is_none() {
-            col = col.child(self.word_toolbar(dir.to_path_buf(), cx));
+            col = col.child(self.word_maker(dir.to_path_buf(), cx));
         }
         if let Some(editor) = &self.speaker_editor {
-            col = col.child(editor.clone());
+            col = col.child(div().flex_1().min_h_0().child(editor.clone()));
         }
         col.into_any_element()
     }
@@ -447,7 +450,8 @@ impl MainWindow {
             col = col.child(strip);
         }
         if let Some(editor) = &self.speaker_editor {
-            col = col.child(editor.clone());
+            // The page scrolls here, so the transcript gets a height of its own.
+            col = col.child(div().h(px(480.)).child(editor.clone()));
         }
         col.into_any_element()
     }

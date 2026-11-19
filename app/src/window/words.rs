@@ -2,12 +2,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, IntoElement, div, prelude::*, rgb};
+use gpui::{AnyElement, Context, IntoElement, div, prelude::*, px, rgb};
 use kikimimic_core::event::PostProcessState;
 use kikimimic_core::library;
 use kikimimic_core::word_timing::{self, WordTiming};
 
-use super::{MainWindow, button, gray, mm_ss};
+use super::{MainWindow, button, gray, mm_ss, small_button};
 
 #[derive(Default)]
 pub(crate) struct WordsView {
@@ -86,6 +86,44 @@ impl MainWindow {
                 editor.set_word_playback(playback, cx);
             });
         }
+    }
+
+    /// The text tab's one word-timing control: make them, or how far along.
+    pub(super) fn word_maker(&self, dir: PathBuf, cx: &mut Context<Self>) -> AnyElement {
+        let running = self.words.pending
+            || self.words.loading
+            || matches!(&self.state.read(cx).word_timing,
+            Some((path, PostProcessState::Running)) if path == &dir);
+        let mut row = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_size(px(12.))
+            .text_color(gray());
+        if running {
+            row = row.child(if self.words.loading {
+                "単語時刻を読み込み中…"
+            } else {
+                "単語時刻を生成中…"
+            });
+        } else {
+            row = row
+                .child("単語の時刻を作ると、本文の語をクリックしてそこから聞けます")
+                .child(
+                    small_button("generate-words", "単語時刻を作る", false).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            this.words.pending = true;
+                            this.words.error = None;
+                            this.kkm.generate_word_timing(dir.clone());
+                            cx.notify();
+                        },
+                    )),
+                );
+        }
+        if let Some(error) = &self.words.error {
+            row = row.child(div().text_color(rgb(0xcf222e)).child(error.clone()));
+        }
+        row.into_any_element()
     }
 
     pub(super) fn word_toolbar(&self, dir: PathBuf, cx: &mut Context<Self>) -> AnyElement {
@@ -293,6 +331,11 @@ pub(crate) enum WordAction {
     ToggleBreak { line: usize, word: usize },
 }
 
+/// Whether the re-recognised words say what the transcript line says.
+pub(crate) fn reads_as(line: &library::Line, timed: &word_timing::TimedLine) -> bool {
+    timed.text().trim() == line.text.trim()
+}
+
 pub(crate) fn word_line<V: 'static + gpui::EventEmitter<WordAction>>(
     index: usize,
     line: &library::Line,
@@ -302,13 +345,21 @@ pub(crate) fn word_line<V: 'static + gpui::EventEmitter<WordAction>>(
     cx: &mut Context<V>,
 ) -> AnyElement {
     let mut col = div().flex().flex_col().gap_1();
-    let label = if timed.text().trim() == line.text.trim() {
-        "再認識の単語時刻"
-    } else {
-        "再認識文（元本文と異なります。上の本文・訳文は保持）"
-    };
-    col = col.child(div().text_color(gray()).child(label));
-    let mut row = div().flex().flex_wrap().gap_1().items_center();
+    // Read as the line itself: no label, no boxes, just words to click.
+    let inline = !editing && reads_as(line, timed);
+    if !inline {
+        let label = if reads_as(line, timed) {
+            "再認識の単語時刻"
+        } else {
+            "再認識文（元本文と異なります。上の本文・訳文は保持）"
+        };
+        col = col.child(div().text_color(gray()).child(label));
+    }
+    let mut row = div()
+        .flex()
+        .flex_wrap()
+        .when(!inline, |d| d.gap_1())
+        .items_center();
     for (i, word) in timed.words.iter().enumerate() {
         if editing && i > 0 {
             let split = timed.breaks.contains(&i);
@@ -330,6 +381,25 @@ pub(crate) fn word_line<V: 'static + gpui::EventEmitter<WordAction>>(
         if let Some(start) = word.seek_ms() {
             let lane = line.lane.clone();
             let active = playback.is_some_and(|p| p.active(&lane, word));
+            if inline {
+                row = row.child(
+                    div()
+                        .id(("word-seek", index * 1_000_000 + i))
+                        .debug_selector(move || format!("word-seek-{index}-{i}"))
+                        .cursor_pointer()
+                        .rounded(px(3.))
+                        .when(active, |d| d.bg(rgb(0xfff8c5)))
+                        .hover(|s| s.bg(rgb(0xf6f8fa)))
+                        .child(word.text.clone())
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(WordAction::Seek {
+                                position: start,
+                                lane: lane.clone(),
+                            })
+                        })),
+                );
+                continue;
+            }
             row = row.child(
                 button(
                     ("word-seek", index * 1_000_000 + i),

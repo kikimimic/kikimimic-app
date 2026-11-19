@@ -606,3 +606,36 @@ fn the_status_line_shows_each_lane_hearing_something_while_recording(cx: &mut Te
         .expect("and for the other side");
     assert!(mic.size.width > speaker.size.width, "{mic:?} {speaker:?}");
 }
+
+#[gpui::test]
+fn a_long_transcript_scrolls_under_a_header_that_stays(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let lines: String = (0..300)
+        .map(|i| {
+            format!(
+                "{{\"type\":\"utterance\",\"id\":{},\"lane\":\"mic\",\"startMs\":{},\"endMs\":{},\"text\":\"line {i}\"}}\n",
+                i + 1,
+                i * 1000,
+                i * 1000 + 900
+            )
+        })
+        .collect();
+    std::fs::write(
+        fixture.0.join("recordings/20261117100000/transcript.jsonl"),
+        lines,
+    )
+    .unwrap();
+    let (_window, cx) = window_with(&fixture, cx);
+    click(cx, "timeline-20261117100000");
+    let header = cx.debug_bounds("ask-this").unwrap();
+    let list = cx.debug_bounds("speaker-transcript").unwrap();
+    let viewport = cx.update(|window, _| window.viewport_size());
+    assert!(list.bottom() <= viewport.height, "the list fits the window");
+    cx.simulate_event(gpui::ScrollEvent {
+        position: list.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(-600.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.debug_bounds("ask-this").unwrap(), header);
+}
