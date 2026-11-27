@@ -42,9 +42,9 @@ impl Ui {
 }
 
 macro_rules! texts {
-    ($($name:ident: $en:expr, $ja:expr;)*) => {
+    ($($(#[$meta:meta])* $name:ident: $en:expr, $ja:expr;)*) => {
         impl Ui {
-            $(pub fn $name(self) -> &'static str {
+            $($(#[$meta])* pub fn $name(self) -> &'static str {
                 match self {
                     Self::En => $en,
                     Self::Ja => $ja,
@@ -448,4 +448,25 @@ mod tests {
         assert_eq!(Ui::new(Some("en")), Ui::En);
         assert_eq!(Ui::new(Some("ja")), Ui::Ja);
     }
+}
+
+texts! {
+    #[cfg(target_os = "macos")]
+    status_start: "Start Recording", "録音を開始";
+    #[cfg(target_os = "macos")]
+    status_starting: "Starting Recording…", "録音を開始中…";
+    #[cfg(target_os = "macos")]
+    status_stop: "Stop Recording", "録音を停止";
+    #[cfg(target_os = "macos")]
+    status_recording: "Kikimimic is recording", "Kikimimic は録音中";
+    #[cfg(target_os = "macos")]
+    status_stop_session: "Stop Listening", "聞き取りを停止";
+    #[cfg(target_os = "macos")]
+    status_stopping: "Stopping…", "停止中…";
+    #[cfg(target_os = "macos")]
+    status_retry: "Retry Recording", "録音を再試行";
+    #[cfg(target_os = "macos")]
+    status_failed: "Kikimimic could not start recording", "Kikimimic は録音を開始できませんでした";
+    #[cfg(target_os = "macos")]
+    status_open: "Open Kikimimic", "Kikimimic を開く";
 }

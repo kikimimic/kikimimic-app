@@ -14,6 +14,8 @@ mod paths;
 mod playback;
 mod speakers;
 mod state;
+#[cfg(target_os = "macos")]
+mod status_menu;
 mod theme;
 mod widgets;
 mod window;
@@ -45,6 +47,10 @@ fn forward(events: Events, state: Entity<AppState>, cx: &mut App) {
     cx.spawn(async move |cx| {
         while let Some(event) = rx.next().await {
             state.update(cx, |s, cx| {
+                #[cfg(target_os = "macos")]
+                if let kikimimic_core::event::Event::Status(status) = &event {
+                    status_menu::apply(status, cx);
+                }
                 s.apply(event);
                 cx.notify();
             });
@@ -87,7 +93,10 @@ fn main() {
         session_name: Box::new(paths::session_name),
         diarizer: diarizer(),
     });
-    gpui_platform::application().run(move |cx: &mut App| {
+    let app = gpui_platform::application();
+    #[cfg(target_os = "macos")]
+    app.on_reopen(status_menu::reopen);
+    app.run(move |cx: &mut App| {
         text_input::bind_keys(cx);
         // Runs before AppKit's `exit`, whose static destructors include ggml's.
         cx.on_app_quit({

@@ -79,12 +79,16 @@ pub fn install(main: WindowHandle<MainWindow>, cx: &mut App) {
     });
     if let Ok(ui) = main.read_with(cx, |w, _| w.ui) {
         relabel(ui, cx);
+        #[cfg(target_os = "macos")]
+        crate::status_menu::install(main, ui, cx);
     }
 }
 
 pub fn relabel(ui: Ui, cx: &mut App) {
     cx.set_menus(menus(ui));
     cx.set_dock_menu(recording_items(ui));
+    #[cfg(target_os = "macos")]
+    crate::status_menu::relabel(ui, cx);
 }
 
 #[cfg(test)]
