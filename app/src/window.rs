@@ -481,9 +481,17 @@ impl MainWindow {
         crate::menus::relabel(ui, cx);
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.show(View::Settings, cx);
+    }
+
     /// Start recording from outside the window (the menu bar, the Dock).
     pub(crate) fn record(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
-        if !self.state.read(cx).is_listening() {
+        if !matches!(
+            self.state.read(cx).phase,
+            Phase::Listening | Phase::Stopping
+        ) {
             self.start(mode, cx);
         }
     }
