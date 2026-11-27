@@ -1,20 +1,26 @@
 //! The system status item is available even when another app has focus.
 
+use std::time::{Duration, Instant};
+
 use futures::{StreamExt, channel::mpsc};
-use gpui::{App, BorrowAppContext, Global, Window, WindowHandle};
+use gpui::{App, BorrowAppContext, Global, Task, Window, WindowHandle};
 use kikimimic_core::{
     SessionMode,
     event::{Notice, Phase, StatusView},
 };
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
 use objc2_app_kit::{
-    NSColor, NSImage, NSMenu, NSMenuItem, NSSquareStatusItemLength, NSStatusBar, NSStatusItem,
-    NSView, NSWindow,
+    NSCellImagePosition, NSColor, NSFont, NSFontWeightRegular, NSImage, NSImageSymbolConfiguration,
+    NSMenu, NSMenuItem, NSSquareStatusItemLength, NSStatusBar, NSStatusItem,
+    NSVariableStatusItemLength, NSView, NSWindow,
 };
-use objc2_foundation::{MainThreadMarker, NSObject, NSString};
+use objc2_foundation::{MainThreadMarker, NSArray, NSObject, NSString};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::{i18n::Ui, window::MainWindow};
+use crate::{
+    i18n::Ui,
+    window::{MainWindow, mm_ss},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RecordingStatus {
@@ -80,6 +86,7 @@ struct StatusMenu {
     _target: Retained<MenuTarget>,
     ui: Ui,
     status: RecordingStatus,
+    recording_timer: Option<Task<()>>,
 }
 
 impl Global for StatusMenu {}
@@ -96,12 +103,7 @@ impl StatusMenu {
                 "ellipsis.circle",
                 false,
             ),
-            Recording => (
-                ui.status_stop(),
-                ui.status_recording(),
-                "record.circle.fill",
-                true,
-            ),
+            Recording => (ui.status_stop(), ui.status_recording(), "circle.fill", true),
             Listening => (ui.status_stop_session(), ui.listening(), "mic.fill", true),
             Stopping => (
                 ui.status_stopping(),
@@ -129,15 +131,71 @@ impl StatusMenu {
             let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                 &NSString::from_str(symbol),
                 Some(&label),
-            );
-            if let Some(image) = &image {
-                image.setTemplate(true);
-            }
+            )
+            .map(|image| {
+                if self.status != Recording {
+                    image.setTemplate(true);
+                    return image;
+                }
+                // SAFETY: AppKit exports this immutable standard font weight.
+                let weight = unsafe { NSFontWeightRegular };
+                let size =
+                    NSImageSymbolConfiguration::configurationWithPointSize_weight(10., weight);
+                let colors = NSArray::from_retained_slice(&[NSColor::systemRedColor()]);
+                let red = NSImageSymbolConfiguration::configurationWithPaletteColors(&colors);
+                let configuration = size.configurationByApplyingConfiguration(&red);
+                let image = image
+                    .imageWithSymbolConfiguration(&configuration)
+                    .unwrap_or(image);
+                image.setTemplate(false);
+                image
+            });
             button.setImage(image.as_deref());
             button.setToolTip(Some(&label));
-            let red = (self.status == Recording).then(NSColor::systemRedColor);
-            button.setContentTintColor(red.as_deref());
         }
+    }
+
+    fn update_recording_timer(&mut self, cx: &App) {
+        // Dropping the task cancels its pending tick.
+        drop(self.recording_timer.take());
+        let mtm = MainThreadMarker::new().expect("AppKit runs on the main thread");
+        let Some(button) = self.item.button(mtm) else {
+            return;
+        };
+        if self.status != RecordingStatus::Recording {
+            button.setTitle(&NSString::from_str(""));
+            button.setImagePosition(NSCellImagePosition::ImageOnly);
+            self.item.setLength(NSSquareStatusItemLength);
+            return;
+        }
+
+        let started = Instant::now();
+        button.setImagePosition(NSCellImagePosition::ImageLeft);
+        self.item.setLength(NSVariableStatusItemLength);
+        button.setTitle(&NSString::from_str(&recording_time(0)));
+        self.recording_timer = Some(cx.spawn(async move |cx| {
+            loop {
+                // Align updates to the elapsed seconds even when the main
+                // thread is temporarily busy.
+                let elapsed = started.elapsed();
+                cx.background_executor()
+                    .timer(Duration::from_secs(elapsed.as_secs() + 1) - elapsed)
+                    .await;
+                button.setTitle(&NSString::from_str(&recording_time(
+                    started.elapsed().as_secs(),
+                )));
+            }
+        }));
+    }
+}
+
+fn recording_time(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let within_hour = mm_ss((seconds % 3600) * 1000);
+    if hours == 0 {
+        within_hour
+    } else {
+        format!("{hours}:{within_hour}")
     }
 }
 
@@ -169,6 +227,13 @@ pub fn install(main: WindowHandle<MainWindow>, ui: Ui, cx: &mut App) {
     let quit = add(Command::Quit);
     let item = NSStatusBar::systemStatusBar().statusItemWithLength(NSSquareStatusItemLength);
     item.setMenu(Some(&menu));
+    if let Some(button) = item.button(mtm) {
+        let size = button.font().map_or(13., |font| font.pointSize());
+        // SAFETY: AppKit exports this immutable standard font weight.
+        let weight = unsafe { NSFontWeightRegular };
+        let font = NSFont::monospacedDigitSystemFontOfSize_weight(size, weight);
+        button.setFont(Some(&font));
+    }
 
     let status = StatusMenu {
         main,
@@ -180,6 +245,7 @@ pub fn install(main: WindowHandle<MainWindow>, ui: Ui, cx: &mut App) {
         _target: target,
         ui,
         status: RecordingStatus::Ready,
+        recording_timer: None,
     };
     status.refresh();
     cx.set_global(status);
@@ -287,9 +353,10 @@ pub fn apply(status: &StatusView, cx: &mut App) {
 
 fn set_status(status: RecordingStatus, cx: &mut App) {
     if cx.global::<StatusMenu>().status != status {
-        cx.update_global::<StatusMenu, _>(|menu, _| {
+        cx.update_global::<StatusMenu, _>(|menu, cx| {
             menu.status = status;
             menu.refresh();
+            menu.update_recording_timer(cx);
         });
     }
 }
@@ -309,4 +376,13 @@ fn status_item_only_shows_recording_while_audio_is_being_saved() {
         RecordingStatus::for_phase(&Phase::Stopping, true),
         RecordingStatus::Stopping
     );
+}
+
+#[cfg(test)]
+#[test]
+fn recording_time_shows_seconds_and_expands_at_one_hour() {
+    assert_eq!(recording_time(0), "00:00");
+    assert_eq!(recording_time(65), "01:05");
+    assert_eq!(recording_time(3599), "59:59");
+    assert_eq!(recording_time(3600), "1:00:00");
 }

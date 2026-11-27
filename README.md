@@ -27,7 +27,7 @@ The name blends *kikimimi* (聞き耳, "listening closely") and *mimic*; the sha
 - Ask Claude Code or Codex about a meeting, live or afterwards (⌘J opens the question drawer beside any screen), and have them draft minutes. Answers must quote the transcript (unbacked ones are not shown); nothing is sent before you confirm what goes where. `kikimimic mcp` also lets an agent in your terminal read meetings over MCP
 - ⌘K finds any action by name; every one of them is also a button on screen
 - A manual advisor on the live screen, a subtitle timeline, and opt-in automatic recording of calendar meetings (starts when one begins, stops a minute after it ends)
-- Start or stop meeting recording from the waveform icon in the macOS system menu bar. Closing the main window keeps Kikimimic running. Use **Open Kikimimic** in the menu or click the Dock icon to bring it back.
+- Start or stop meeting recording from the waveform icon in the macOS system menu bar. A red recording icon and elapsed time appear while audio is being saved. Closing the main window keeps Kikimimic running. Use **Open Kikimimic** in the menu or click the Dock icon to bring it back.
 
 ## Models
 
